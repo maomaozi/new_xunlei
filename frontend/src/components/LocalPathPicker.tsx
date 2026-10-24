@@ -92,7 +92,7 @@ export default function LocalPathPicker({
             <span className="text-danger">{errorMessage(error)}</span>
             {blocked && (
               <>
-                <PillButton icon={ShieldCheck} onClick={() => void allow()}>
+                <PillButton icon={ShieldCheck} onClick={() => allow()}>
                   允许访问 {blocked}
                 </PillButton>
                 <span className="max-w-sm text-xs text-ink-3">会加入「设置 → 系统 → 本机访问范围」。本站没有独立登录，能访问本站的人都可以浏览这些目录。</span>

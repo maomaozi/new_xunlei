@@ -50,7 +50,7 @@ const STATUS: Record<TransferItem['status'], { label: string; tone: 'accent' | '
   canceled: { label: '已取消', tone: 'muted' },
 }
 
-function RowActions({ item, onAction }: { item: TransferItem; onAction: (action: Action) => void }) {
+function RowActions({ item, onAction }: { item: TransferItem; onAction: (action: Action) => unknown }) {
   return (
     <div className="flex shrink-0 gap-2">
       {(item.status === 'running' || item.status === 'queued') && <IconButton icon={Pause} label="暂停" size="sm" onClick={() => onAction('pause')} />}
@@ -64,7 +64,7 @@ function RowActions({ item, onAction }: { item: TransferItem; onAction: (action:
   )
 }
 
-function TransferRow({ item, onAction }: { item: TransferItem; onAction: (action: Action) => void }) {
+function TransferRow({ item, onAction }: { item: TransferItem; onAction: (action: Action) => unknown }) {
   const status = STATUS[item.status]
   const value = item.status === 'completed' ? 100 : percent(item.done_bytes, item.size)
   const active = item.status === 'running'
@@ -148,11 +148,10 @@ export default function TransfersPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['transfers'] })
 
-  const act = async (item: TransferItem, action: Action) => {
-    try {
-      if (action === 'delete') {
-        let deleteFiles = false
-        const confirmed = await modal.confirm({
+  const confirmDelete = (item: TransferItem) => {
+    let deleteFiles = false
+    // The API call runs inside onOk so the dialog's button shows progress and blocks repeats.
+    modal.confirm({
           title: '删除传输记录？',
           content:
             item.kind !== 'upload' && item.status === 'completed' ? (
@@ -164,12 +163,21 @@ export default function TransfersPage() {
             ),
           okText: '删除',
           okButtonProps: { danger: true },
+          onOk: async () => {
+            try {
+              await transfersApi.remove([item.id], deleteFiles)
+              refresh()
+            } catch (error) {
+              message.error(errorMessage(error))
+            }
+          },
         })
-        if (!confirmed) return
-        await transfersApi.remove([item.id], deleteFiles)
-      } else {
-        await transfersApi.control(item.id, action)
-      }
+  }
+
+  const act = async (item: TransferItem, action: Action) => {
+    if (action === 'delete') return confirmDelete(item)
+    try {
+      await transfersApi.control(item.id, action)
       refresh()
     } catch (error) {
       message.error(errorMessage(error))
@@ -219,13 +227,13 @@ export default function TransfersPage() {
           />
           <div className="flex-1" />
           <div className="flex gap-2">
-            <PillButton icon={Pause} onClick={() => void bulk('pause-all')} className="!px-3">
+            <PillButton icon={Pause} onClick={() => bulk('pause-all')} className="!px-3">
               <span className="hidden sm:inline">全部暂停</span>
             </PillButton>
-            <PillButton icon={Play} onClick={() => void bulk('resume-all')} className="!px-3">
+            <PillButton icon={Play} onClick={() => bulk('resume-all')} className="!px-3">
               <span className="hidden sm:inline">全部继续</span>
             </PillButton>
-            <PillButton icon={Brush} onClick={() => void bulk('clear-finished')} className="!px-3">
+            <PillButton icon={Brush} onClick={() => bulk('clear-finished')} className="!px-3">
               <span className="hidden sm:inline">清除已完成</span>
             </PillButton>
           </div>
@@ -237,7 +245,7 @@ export default function TransfersPage() {
         ) : (
           <div className="space-y-1">
             {items.map((item) => (
-              <TransferRow key={item.id} item={item} onAction={(action) => void act(item, action)} />
+              <TransferRow key={item.id} item={item} onAction={(action) => act(item, action)} />
             ))}
           </div>
         )}

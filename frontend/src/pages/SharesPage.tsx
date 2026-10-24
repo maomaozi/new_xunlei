@@ -56,7 +56,7 @@ export default function SharesPage() {
       <PageHeader
         title="我的分享"
         subtitle="在云盘中选择文件即可创建分享"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => void query.refetch()} spinning={query.isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => query.refetch()} spinning={query.isFetching} />}
       />
       {query.isLoading ? (
         <Card>
@@ -106,7 +106,7 @@ export default function SharesPage() {
                 {share.expiration_days === -1 || share.expiration_days === 0 ? '永久有效' : `${formatTime(share.expiration_at)} 过期`}
               </div>
               <div className="mt-auto flex gap-2.5">
-                <PillButton primary icon={Copy} className="flex-1 justify-center" onClick={() => void copy(share)}>
+                <PillButton primary icon={Copy} className="flex-1 justify-center" onClick={() => copy(share)}>
                   复制
                 </PillButton>
                 <IconButton icon={ExternalLink} label="打开链接" onClick={() => window.open(share.share_url, '_blank')} />
@@ -118,7 +118,7 @@ export default function SharesPage() {
       )}
       {query.hasNextPage && (
         <div className="mt-6 text-center">
-          <PillButton onClick={() => void query.fetchNextPage()}>加载更多</PillButton>
+          <PillButton onClick={() => query.fetchNextPage()}>加载更多</PillButton>
         </div>
       )}
     </div>

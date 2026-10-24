@@ -139,7 +139,7 @@ export default function OfflineCreatePanel({
           <span className="truncate">保存到：{target.name}</span>
         </PillButton>
         <div className="flex-1" />
-        <PillButton primary icon={Send} disabled={busy} onClick={() => void submit()}>
+        <PillButton primary icon={Send} disabled={busy} onClick={() => submit()}>
           {busy ? '提交中…' : '开始云添加'}
         </PillButton>
       </div>

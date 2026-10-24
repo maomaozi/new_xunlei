@@ -97,7 +97,7 @@ export default function TrashPage() {
         subtitle={files.length ? `${files.length} 项` : undefined}
         actions={
           <>
-            <IconButton icon={RefreshCw} label="刷新" onClick={() => void query.refetch()} spinning={query.isFetching} />
+            <IconButton icon={RefreshCw} label="刷新" onClick={() => query.refetch()} spinning={query.isFetching} />
             <PillButton icon={Trash2} disabled={!files.length} onClick={empty} className="!text-danger">
               <span className="hidden sm:inline">清空回收站</span>
             </PillButton>
@@ -108,7 +108,7 @@ export default function TrashPage() {
         <div className="neu-raised sticky top-4 z-30 mb-4 flex items-center gap-3 rounded-[22px] p-2 pl-4 text-[13px] text-ink-2">
           已选 <b className="text-accent">{selected.size}</b> 项
           <div className="flex-1" />
-          <PillButton icon={Undo2} onClick={() => void restore(targets)}>恢复</PillButton>
+          <PillButton icon={Undo2} onClick={() => restore(targets)}>恢复</PillButton>
           <PillButton icon={Trash2} className="!text-danger" onClick={() => purge(targets)}>彻底删除</PillButton>
         </div>
       )}
@@ -140,7 +140,7 @@ export default function TrashPage() {
       </Card>
       {query.hasNextPage && (
         <div className="mt-5 text-center">
-          <PillButton icon={RotateCcw} onClick={() => void query.fetchNextPage()}>加载更多</PillButton>
+          <PillButton icon={RotateCcw} onClick={() => query.fetchNextPage()}>加载更多</PillButton>
         </div>
       )}
     </div>

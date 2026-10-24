@@ -34,7 +34,7 @@ export default function DownloadRow({
   task: DownloadTask
   selected: boolean
   onToggle: () => void
-  onAction: (action: DownloadAction) => void
+  onAction: (action: DownloadAction) => unknown
 }) {
   const status = DOWNLOAD_STATUS[task.status]
   const running = task.status === 'running'

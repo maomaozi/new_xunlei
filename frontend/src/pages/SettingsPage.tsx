@@ -179,7 +179,7 @@ function SectionForm<S extends SettingsSection>({
       >
         <span className="text-[12px] text-ink-3">有未保存的修改</span>
         <PillButton onClick={() => (form.resetFields(), form.setFieldsValue(toForm ? toForm(value) : value), setDirty(false))}>撤销</PillButton>
-        <PillButton primary icon={Save} disabled={saving} onClick={() => void save()}>
+        <PillButton primary icon={Save} disabled={saving} onClick={() => save()}>
           保存
         </PillButton>
       </div>

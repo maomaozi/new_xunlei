@@ -79,7 +79,7 @@ export default function EngineLoginModal({ open, onClose }: { open: boolean; onC
               >
                 刷新二维码
               </PillButton>
-              <PillButton icon={Copy} onClick={() => void copyLink()}>
+              <PillButton icon={Copy} onClick={() => copyLink()}>
                 复制登录链接
               </PillButton>
             </div>

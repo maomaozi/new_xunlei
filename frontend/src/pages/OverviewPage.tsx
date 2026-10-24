@@ -94,7 +94,7 @@ export default function OverviewPage() {
     )
   }
   if (overview.error) {
-    return <EmptyState icon={HardDrive} title="无法连接迅雷" description={errorMessage(overview.error)} action={<PillButton onClick={() => void overview.refetch()}>重试</PillButton>} />
+    return <EmptyState icon={HardDrive} title="无法连接迅雷" description={errorMessage(overview.error)} action={<PillButton onClick={() => overview.refetch()}>重试</PillButton>} />
   }
   if (!loggedIn) return <Onboarding />
 

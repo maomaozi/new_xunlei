@@ -158,7 +158,7 @@ export default function AddDownloadModal({
         <SubFileSelect target={subTarget} value={selection} onChange={setSelection} />
         <div className="flex-1" />
         <span className="text-[12px] text-ink-3">{links.length + (torrent ? 1 : 0)} 个任务</span>
-        <PillButton primary icon={Download} disabled={busy} onClick={() => void submit()}>
+        <PillButton primary icon={Download} disabled={busy} onClick={() => submit()}>
           {busy ? '提交中…' : '立即下载'}
         </PillButton>
       </div>

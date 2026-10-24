@@ -30,7 +30,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { useCallback, useMemo, useState, type MouseEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Virtuoso, VirtuosoGrid } from 'react-virtuoso'
 import BottomSheet, { SheetAction } from '../components/BottomSheet'
@@ -169,14 +169,44 @@ export default function DrivePage() {
     setAnchor(null)
   }
 
+  // Menu-driven actions have no button to spin, so slow calls show a keyed loading toast and
+  // the same action cannot be started again while it is pending.
+  const [pendingOps] = useState(() => new Set<string>())
+  const withProgress = async <T,>(key: string, action: () => Promise<T>): Promise<T | undefined> => {
+    if (pendingOps.has(key)) return undefined
+    pendingOps.add(key)
+    const timer = window.setTimeout(() => message.open({ key, type: 'loading', content: '处理中…', duration: 0 }), 300)
+    try {
+      return await action()
+    } finally {
+      window.clearTimeout(timer)
+      message.destroy(key)
+      pendingOps.delete(key)
+    }
+  }
+
   const run = async (action: () => Promise<unknown>, success: string, delayed = true) => {
     try {
-      await action()
+      await withProgress(`op:${success}`, action)
       message.success(success)
       clearSelection()
       refresh(delayed)
     } catch (error) {
       message.error(errorMessage(error))
+    }
+  }
+
+  const [dialogBusy, setDialogBusy] = useState(false)
+  const dialogBusyRef = useRef(false)
+  const submitDialog = async (action: () => Promise<void>) => {
+    if (dialogBusyRef.current) return
+    dialogBusyRef.current = true
+    setDialogBusy(true)
+    try {
+      await action()
+    } finally {
+      dialogBusyRef.current = false
+      setDialogBusy(false)
     }
   }
 
@@ -240,8 +270,8 @@ export default function DrivePage() {
 
   const copyLink = async (file: DriveFile) => {
     try {
-      const link = await filesApi.link(file.id)
-      if (await copyText(link.url)) message.success('直链已复制')
+      const link = await withProgress(`link:${file.id}`, () => filesApi.link(file.id))
+      if (link && (await copyText(link.url))) message.success('直链已复制')
     } catch (error) {
       message.error(errorMessage(error))
     }
@@ -253,8 +283,8 @@ export default function DrivePage() {
         window.open(filesApi.streamUrl(file.id, true), '_blank')
         return
       }
-      const link = await filesApi.link(file.id)
-      window.open(link.url, '_blank')
+      const link = await withProgress(`link:${file.id}`, () => filesApi.link(file.id))
+      if (link) window.open(link.url, '_blank')
     } catch (error) {
       message.error(errorMessage(error))
     }
@@ -438,7 +468,7 @@ export default function DrivePage() {
               <IconButton
                 icon={gridView ? List : LayoutGrid}
                 label={gridView ? '列表视图' : '网格视图'}
-                onClick={() => void update('drive', { default_view: gridView ? 'list' : 'grid' })}
+                onClick={() => update('drive', { default_view: gridView ? 'list' : 'grid' })}
               />
               <Dropdown menu={{ items: addMenu }} trigger={['click']}>
                 <span>
@@ -648,14 +678,17 @@ export default function DrivePage() {
         title={dialog?.type === 'rename' ? '重命名' : '新建文件夹'}
         onCancel={() => setDialog(null)}
         okButtonProps={{ disabled: !nameInput.trim() }}
-        onOk={async () => {
-          if (dialog?.type === 'rename') {
-            await run(() => filesApi.rename(dialog.file.id, nameInput.trim()), '已重命名', false)
-          } else {
-            await run(() => filesApi.createFolder(nameInput.trim(), folderId), '文件夹已创建', false)
-          }
-          setDialog(null)
-        }}
+        confirmLoading={dialogBusy}
+        onOk={() =>
+          submitDialog(async () => {
+            if (dialog?.type === 'rename') {
+              await run(() => filesApi.rename(dialog.file.id, nameInput.trim()), '已重命名', false)
+            } else {
+              await run(() => filesApi.createFolder(nameInput.trim(), folderId), '文件夹已创建', false)
+            }
+            setDialog(null)
+          })
+        }
         destroyOnHidden
       >
         <Input
@@ -700,7 +733,9 @@ export default function DrivePage() {
         title="下载到本机"
         okText="开始下载"
         onCancel={() => setDialog(null)}
-        onOk={async () => {
+        confirmLoading={dialogBusy}
+        onOk={() =>
+          submitDialog(async () => {
           if (dialog?.type !== 'download') return
           try {
             if (viaEngine) {
@@ -720,7 +755,8 @@ export default function DrivePage() {
           } catch (error) {
             message.error(errorMessage(error))
           }
-        }}
+        })
+        }
         destroyOnHidden
       >
         <div className="space-y-4 pt-2">

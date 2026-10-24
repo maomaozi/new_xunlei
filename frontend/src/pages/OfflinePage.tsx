@@ -88,7 +88,7 @@ export default function OfflinePage() {
       <PageHeader
         title="云添加"
         subtitle="磁力 / BT 种子 / HTTP / FTP / ed2k 资源由迅雷服务器离线下载并保存到云盘"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => void query.refetch()} spinning={query.isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => query.refetch()} spinning={query.isFetching} />}
       />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
         <Card className="h-fit p-5 md:p-6">
@@ -134,7 +134,7 @@ export default function OfflinePage() {
               ))}
               {query.hasNextPage && (
                 <div className="pt-3 text-center">
-                  <PillButton onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+                  <PillButton onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
                     {query.isFetchingNextPage ? '加载中…' : '加载更多'}
                   </PillButton>
                 </div>

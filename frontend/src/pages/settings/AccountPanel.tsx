@@ -80,7 +80,7 @@ function QrLogin({ onSuccess }: { onSuccess: () => void }) {
             className="!rounded-2xl !bg-white !p-1"
           />
         ) : (
-          <button type="button" onClick={() => void start()} className="neu-press flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-[22px] border-0 text-ink-2">
+          <button type="button" disabled={state === 'loading'} onClick={() => void start()} className="neu-press flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-[22px] border-0 text-ink-2">
             <QrCode size={40} className="text-accent" />
             <span className="text-sm">{state === 'loading' ? '正在获取…' : '获取登录二维码'}</span>
           </button>
@@ -112,7 +112,7 @@ function QrLogin({ onSuccess }: { onSuccess: () => void }) {
           </div>
         )}
         {(state === 'expired' || state === 'denied') && (
-          <PillButton icon={RefreshCw} onClick={() => void start()}>
+          <PillButton icon={RefreshCw} onClick={() => start()}>
             {state === 'denied' ? '已拒绝，重新获取' : '已过期，重新获取'}
           </PillButton>
         )}
@@ -166,7 +166,7 @@ function ImportLogin({ onSuccess }: { onSuccess: () => void }) {
         className="!rounded-[20px] !p-4 !font-mono !text-[12px]"
       />
       <div className="flex flex-wrap gap-2.5">
-        <PillButton primary icon={KeyRound} disabled={busy || !text.trim()} onClick={() => void submit()}>
+        <PillButton primary icon={KeyRound} disabled={busy || !text.trim()} onClick={() => submit()}>
           导入 JSON
         </PillButton>
         <PillButton icon={Upload} onClick={() => fileRef.current?.click()}>
@@ -210,7 +210,7 @@ function PasswordLogin({ onSuccess }: { onSuccess: () => void }) {
     <div className="max-w-md space-y-3.5">
       <Input size="large" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="手机号 / 邮箱 / 用户名" autoComplete="username" />
       <Input.Password size="large" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码" autoComplete="current-password" onPressEnter={() => void submit()} />
-      <PillButton primary icon={KeyRound} disabled={busy || !username || !password} onClick={() => void submit()}>
+      <PillButton primary icon={KeyRound} disabled={busy || !username || !password} onClick={() => submit()}>
         {busy ? '登录中…' : '登录'}
       </PillButton>
       <div className="text-xs text-ink-3">若迅雷要求滑块/短信等人机验证，请改用扫码登录或导入凭据。</div>
@@ -238,7 +238,7 @@ function DeviceIdCard({ current, onSaved }: { current: string; onSaved: () => vo
       </div>
       <div className="flex gap-2">
         <Input value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="!font-mono" />
-        <PillButton icon={Save} disabled={!deviceId.trim() || deviceId === current} onClick={() => void save()}>
+        <PillButton icon={Save} disabled={!deviceId.trim() || deviceId === current} onClick={() => save()}>
           保存
         </PillButton>
       </div>
@@ -327,7 +327,7 @@ export default function AccountPanel() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2.5">
-              <PillButton icon={RefreshCw} onClick={() => void refreshToken()} disabled={!info.has_refresh_token}>
+              <PillButton icon={RefreshCw} onClick={() => refreshToken()} disabled={!info.has_refresh_token}>
                 立即刷新 Token
               </PillButton>
               <PillButton icon={LogOut} className="!text-danger" onClick={logout}>

@@ -32,7 +32,7 @@ export default function EventsPage() {
       <PageHeader
         title="动态"
         subtitle="云盘中的云添加、上传、转存等记录"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => void query.refetch()} spinning={query.isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => query.refetch()} spinning={query.isFetching} />}
       />
       <Card className="p-3 md:p-5">
         {query.isLoading ? (
@@ -74,7 +74,7 @@ export default function EventsPage() {
         )}
         {query.hasNextPage && (
           <div className="pt-4 text-center">
-            <PillButton onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+            <PillButton onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
               {query.isFetchingNextPage ? '加载中…' : '加载更多'}
             </PillButton>
           </div>

@@ -100,7 +100,7 @@ export default function ShareModal({
               </div>
             )}
           </div>
-          <PillButton primary icon={copied ? Check : Copy} className="w-full justify-center" onClick={() => void copy()}>
+          <PillButton primary icon={copied ? Check : Copy} className="w-full justify-center" onClick={() => copy()}>
             {copied ? '已复制' : '复制链接与提取码'}
           </PillButton>
         </div>
@@ -132,7 +132,7 @@ export default function ShareModal({
             </div>
             <InputNumber min={-1} value={limit} onChange={(value) => setLimit(value ?? -1)} />
           </div>
-          <PillButton primary className="w-full justify-center" disabled={busy} onClick={() => void create()}>
+          <PillButton primary className="w-full justify-center" disabled={busy} onClick={() => create()}>
             {busy ? '正在创建…' : '生成分享链接'}
           </PillButton>
         </div>

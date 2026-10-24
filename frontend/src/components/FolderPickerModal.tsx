@@ -119,7 +119,7 @@ export default function FolderPickerModal({
         {creating ? (
           <div className="flex gap-2">
             <Input autoFocus value={newName} placeholder="新文件夹名称" onChange={(e) => setNewName(e.target.value)} onPressEnter={() => void create()} />
-            <PillButton primary onClick={() => void create()}>创建</PillButton>
+            <PillButton primary onClick={() => create()}>创建</PillButton>
             <PillButton onClick={() => setCreating(false)}>取消</PillButton>
           </div>
         ) : (

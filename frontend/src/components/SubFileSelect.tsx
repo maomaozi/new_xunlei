@@ -72,7 +72,7 @@ export default function SubFileSelect({
 
   return (
     <>
-      <PillButton icon={ListChecks} active={Boolean(current)} disabled={loading} onClick={() => void show()}>
+      <PillButton icon={ListChecks} active={Boolean(current)} disabled={loading} onClick={() => show()}>
         {loading ? '解析中…' : current ? `已选 ${current.length} 个文件` : '选择文件'}
       </PillButton>
       <Modal

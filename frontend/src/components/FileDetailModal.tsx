@@ -111,7 +111,7 @@ export default function FileDetailModal({
               >
                 浏览器下载
               </PillButton>
-              <PillButton icon={Copy} disabled={!link.data} onClick={() => void copyLink()}>
+              <PillButton icon={Copy} disabled={!link.data} onClick={() => copyLink()}>
                 复制直链
               </PillButton>
               {externalUrl && (

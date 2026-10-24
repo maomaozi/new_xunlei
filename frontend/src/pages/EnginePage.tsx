@@ -32,15 +32,9 @@ function ProcessCard({ status }: { status: EngineStatus }) {
   const state = ENGINE_STATE[status.state]
   const alive = status.pid !== null
 
-  const act = async (action: 'start' | 'stop' | 'restart') => {
-    if (action !== 'start') {
-      const ok = await modal.confirm({
-        title: action === 'stop' ? '停止下载引擎？' : '重启下载引擎？',
-        content: '进行中的下载会暂停，引擎再次启动后自动继续。',
-        okText: action === 'stop' ? '停止' : '重启',
-      })
-      if (!ok) return
-    }
+  // Process actions block each other while one is in flight; stop/restart confirm first and
+  // run inside onOk so the dialog button shows progress.
+  const run = async (action: 'start' | 'stop' | 'restart') => {
     setBusy(true)
     try {
       queryClient.setQueryData(['engine'], await engineApi[action]())
@@ -49,6 +43,16 @@ function ProcessCard({ status }: { status: EngineStatus }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const act = (action: 'start' | 'stop' | 'restart') => {
+    if (action === 'start') return run(action)
+    modal.confirm({
+      title: action === 'stop' ? '停止下载引擎？' : '重启下载引擎？',
+      content: '进行中的下载会暂停，引擎再次启动后自动继续。',
+      okText: action === 'stop' ? '停止' : '重启',
+      onOk: () => run(action),
+    })
   }
 
   return (
@@ -74,16 +78,16 @@ function ProcessCard({ status }: { status: EngineStatus }) {
       />
       <div className="mt-4 flex flex-wrap gap-2.5">
         {!alive && (
-          <PillButton primary icon={Play} disabled={busy || !status.enabled || status.state === 'missing_binary'} onClick={() => void act('start')}>
+          <PillButton primary icon={Play} disabled={busy || !status.enabled || status.state === 'missing_binary'} onClick={() => act('start')}>
             启动
           </PillButton>
         )}
         {alive && (
           <>
-            <PillButton icon={RotateCcw} disabled={busy} onClick={() => void act('restart')}>
+            <PillButton icon={RotateCcw} disabled={busy} onClick={() => act('restart')}>
               重启
             </PillButton>
-            <PillButton icon={Square} disabled={busy} onClick={() => void act('stop')}>
+            <PillButton icon={Square} disabled={busy} onClick={() => act('stop')}>
               停止
             </PillButton>
           </>
@@ -196,7 +200,7 @@ function LogsCard() {
             <PillButton className="!py-2" onClick={() => setLines(lines === 200 ? 1000 : 200)}>
               {lines === 200 ? '显示更多' : '最近 200 行'}
             </PillButton>
-            <IconButton icon={RefreshCw} label="刷新" size="sm" onClick={() => void logs.refetch()} spinning={logs.isFetching} />
+            <IconButton icon={RefreshCw} label="刷新" size="sm" onClick={() => logs.refetch()} spinning={logs.isFetching} />
           </div>
         }
       />
@@ -216,7 +220,7 @@ export default function EnginePage() {
       <PageHeader
         title="下载引擎"
         subtitle="内置迅雷下载内核（xldownloadlib）与任务调度器，脱离 NAS / Docker 独立运行"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => void refetch()} spinning={isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => refetch()} spinning={isFetching} />}
       />
       {!status ? (
         <Card className="flex items-center gap-3 p-6 text-ink-3">

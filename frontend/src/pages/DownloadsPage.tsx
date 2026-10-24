@@ -46,7 +46,7 @@ function TrialStrip({ active }: { active: number }) {
         超级加速试用：剩余 {left} / {data.total} 次{trying ? `，本次还剩 ${formatDuration(data.remaining_seconds)}` : ''}
         {data.saved_seconds > 0 && `，累计节省 ${formatDuration(data.saved_seconds)}`}
       </div>
-      <PillButton primary disabled={!left || !active || trying} onClick={() => void apply()}>
+      <PillButton primary disabled={!left || !active || trying} onClick={() => apply()}>
         {trying ? '试用中' : '开启试用'}
       </PillButton>
     </Card>
@@ -86,9 +86,10 @@ export default function DownloadsPage() {
       return next
     })
 
-  const confirmDelete = async (items: DownloadTask[]) => {
+  // The API call runs inside onOk so the dialog's button shows progress and blocks repeats.
+  const confirmDelete = (items: DownloadTask[]) => {
     let withFiles = settings?.engine.delete_files_with_task ?? false
-    const ok = await modal.confirm({
+    modal.confirm({
       title: items.length > 1 ? `删除 ${items.length} 个下载任务？` : '删除下载任务？',
       content: (
         <div className="pt-2">
@@ -99,10 +100,17 @@ export default function DownloadsPage() {
       ),
       okText: '删除',
       okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await downloadsApi.remove(items.map((t) => t.id), withFiles)
+          message.success('已删除')
+          setSelected(new Set())
+          refresh()
+        } catch (error) {
+          message.error(errorMessage(error))
+        }
+      },
     })
-    if (!ok) return
-    await downloadsApi.remove(items.map((t) => t.id), withFiles)
-    message.success('已删除')
   }
 
   const run = async (items: DownloadTask[], action: DownloadAction) => {
@@ -110,9 +118,9 @@ export default function DownloadsPage() {
     try {
       const ids = items.map((t) => t.id)
       if (action === 'detail') return setDetail(items[0])
+      if (action === 'delete') return confirmDelete(items)
       if (action === 'pause') await downloadsApi.pause(ids)
       if (action === 'resume') await downloadsApi.resume(ids)
-      if (action === 'delete') await confirmDelete(items)
       if (action === 'retry') {
         const { results } = await downloadsApi.retry(ids)
         results.filter((r) => !r.ok).forEach((r) => message.error(r.error))
@@ -193,16 +201,16 @@ export default function DownloadsPage() {
           )}
           {chosen.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              <PillButton icon={Pause} onClick={() => void run(chosen, 'pause')} className="!px-3">
+              <PillButton icon={Pause} onClick={() => run(chosen, 'pause')} className="!px-3">
                 暂停
               </PillButton>
-              <PillButton icon={Play} onClick={() => void run(chosen, 'resume')} className="!px-3">
+              <PillButton icon={Play} onClick={() => run(chosen, 'resume')} className="!px-3">
                 继续
               </PillButton>
-              <PillButton icon={RotateCw} onClick={() => void run(chosen.filter((t) => t.status === 'error'), 'retry')} className="!px-3">
+              <PillButton icon={RotateCw} onClick={() => run(chosen.filter((t) => t.status === 'error'), 'retry')} className="!px-3">
                 重试
               </PillButton>
-              <PillButton icon={Trash2} onClick={() => void run(chosen, 'delete')} className="!px-3 !text-danger">
+              <PillButton icon={Trash2} onClick={() => run(chosen, 'delete')} className="!px-3 !text-danger">
                 删除 {chosen.length}
               </PillButton>
             </div>
@@ -226,7 +234,7 @@ export default function DownloadsPage() {
         ) : (
           <div className="space-y-1">
             {tasks.map((task) => (
-              <DownloadRow key={task.id} task={task} selected={selected.has(task.id)} onToggle={() => toggle(task.id)} onAction={(action) => void run([task], action)} />
+              <DownloadRow key={task.id} task={task} selected={selected.has(task.id)} onToggle={() => toggle(task.id)} onAction={(action) => run([task], action)} />
             ))}
           </div>
         )}

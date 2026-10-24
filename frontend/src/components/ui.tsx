@@ -1,7 +1,35 @@
 import { Tooltip } from 'antd'
-import type { LucideIcon } from 'lucide-react'
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
+import { Loader2, type LucideIcon } from 'lucide-react'
+import { useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { cx } from '../lib/cx'
+
+type ClickHandler = (event: MouseEvent<HTMLButtonElement>) => unknown
+
+interface AsyncClickProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'> {
+  /** When the handler returns a promise the button shows a spinner and ignores clicks until it settles. */
+  onClick?: ClickHandler
+  /** Externally controlled busy state (same effect as a pending click). */
+  loading?: boolean
+}
+
+/** Tracks a pending async click so slow API calls cannot be submitted twice. */
+function usePendingClick(onClick: ClickHandler | undefined): [boolean, ClickHandler] {
+  const [pending, setPending] = useState(false)
+  const busy = useRef(false)
+  const handle: ClickHandler = (event) => {
+    if (busy.current || !onClick) return
+    const result = onClick(event)
+    if (result instanceof Promise) {
+      busy.current = true
+      setPending(true)
+      void result.finally(() => {
+        busy.current = false
+        setPending(false)
+      })
+    }
+  }
+  return [pending, handle]
+}
 
 export function Card({
   children,
@@ -27,7 +55,7 @@ export function Card({
   )
 }
 
-interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface IconButtonProps extends AsyncClickProps {
   icon: LucideIcon
   label: string
   active?: boolean
@@ -49,12 +77,21 @@ export function IconButton({
   showTooltip = true,
   spinning = false,
   className,
+  onClick,
+  loading = false,
+  disabled,
   ...rest
 }: IconButtonProps) {
+  const [pending, handleClick] = usePendingClick(onClick)
+  const busy = pending || loading
+  const ShownIcon = busy && !spinning ? Loader2 : Icon
   const button = (
     <button
       type="button"
       aria-label={label}
+      aria-busy={busy || undefined}
+      disabled={disabled || busy}
+      onClick={handleClick}
       data-active={active ? 'true' : undefined}
       className={cx(
         'neu-press inline-flex shrink-0 cursor-pointer items-center justify-center rounded-2xl border-0 outline-none disabled:cursor-not-allowed disabled:opacity-40',
@@ -64,7 +101,7 @@ export function IconButton({
       )}
       {...rest}
     >
-      <Icon size={ICON_SIZES[size]} strokeWidth={2} className={spinning ? 'animate-spin' : undefined} />
+      <ShownIcon size={ICON_SIZES[size]} strokeWidth={2} className={spinning || busy ? 'animate-spin' : undefined} />
     </button>
   )
   return showTooltip ? (
@@ -82,11 +119,19 @@ export function PillButton({
   active,
   className,
   primary,
+  onClick,
+  loading = false,
+  disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { icon?: LucideIcon; active?: boolean; primary?: boolean }) {
+}: AsyncClickProps & { icon?: LucideIcon; active?: boolean; primary?: boolean }) {
+  const [pending, handleClick] = usePendingClick(onClick)
+  const busy = pending || loading
   return (
     <button
       type="button"
+      aria-busy={busy || undefined}
+      disabled={disabled || busy}
+      onClick={handleClick}
       data-active={active ? 'true' : undefined}
       className={cx(
         'inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-2xl border-0 px-4 py-2.5 text-sm font-medium whitespace-nowrap outline-none transition disabled:cursor-not-allowed disabled:opacity-40',
@@ -96,7 +141,7 @@ export function PillButton({
       )}
       {...rest}
     >
-      {Icon && <Icon size={16} strokeWidth={2.2} />}
+      {busy ? <Loader2 size={16} strokeWidth={2.2} className="animate-spin" /> : Icon && <Icon size={16} strokeWidth={2.2} />}
       {children}
     </button>
   )

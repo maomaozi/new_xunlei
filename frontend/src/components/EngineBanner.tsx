@@ -42,7 +42,7 @@ export default function EngineBanner({ status }: { status: EngineStatus | undefi
     title = status.state === 'crashed' ? '下载引擎异常退出' : '下载引擎未运行'
     detail = status.message || '启动后即可在本机下载链接、种子与云盘文件。'
     action = (
-      <PillButton primary icon={Play} disabled={busy} onClick={() => void start()}>
+      <PillButton primary icon={Play} disabled={busy} onClick={() => start()}>
         启动引擎
       </PillButton>
     )
