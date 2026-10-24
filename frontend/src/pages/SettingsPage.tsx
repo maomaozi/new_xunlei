@@ -214,8 +214,8 @@ function NetworkPanel() {
             <Input />
           </Field>
           <Row
-            label="域名直连 IP（custom_host_to_ip）"
-            desc="逆向自官方客户端：绕过 DNS 将域名固定到指定 IPv4，TLS 仍按原域名校验。默认 api-pan.xunlei.com → 101.91.143.206。"
+            label="域名直连 IP"
+            desc="为指定域名设置固定连接 IP，连接时仍校验原域名证书。默认 api-pan.xunlei.com → 101.91.143.206。"
           >
             <Form.List name="host_overrides">
               {(fields, { add, remove }) => (
@@ -464,7 +464,7 @@ function EnginePanel() {
       <SectionForm
         section="engine"
         title="下载引擎"
-        description="内置迅雷下载引擎（xunlei-pan-cli 的任务调度器 + xldownloadlib 内核）。限速、并发、目录等修改会立即下发到运行中的引擎；程序、端口、平台、数据目录变更会自动重启引擎。"
+        description="限速、并发、目录等修改会立即生效；程序、端口、平台、数据目录变更会自动重启引擎。"
       >
         {(form) => (
           <>
@@ -494,17 +494,17 @@ function EnginePanel() {
       <SectionForm section="engine" title="进程与运行环境（高级）" description="通常无需修改。">
         {(form) => (
           <>
-            <Field name="binary_path" label="引擎程序路径" desc="留空使用项目自带的 engine/xunlei-pan-cli.*（按 CPU 架构选择 arm64 / amd64）">
+            <Field name="binary_path" label="引擎程序路径" desc="留空使用自带的下载引擎，自动匹配当前设备架构">
               <Input placeholder="自动查找" className="!font-mono" />
             </Field>
             <DirField name="home_dir" label="引擎数据目录" desc="引擎的 HOME（含 .drive 登录状态），留空使用 <数据目录>/engine" form={form} />
             <DirField name="torrent_dir" label="种子缓存目录" desc="磁力解析得到的 .torrent，留空使用 <引擎数据目录>/torrents" form={form} />
-            <Field name="platform" label="平台身份" desc="需账号拥有对应平台权限（PLATFORM_QNAP / PAN_CLI_PREVIEW / PLATFORM_DOCKER）">
+            <Field name="platform" label="平台身份" desc="需账号拥有对应平台的使用权限">
               <Select
                 options={[
                   { value: 'qnap', label: '威联通 QNAP' },
                   { value: 'synology', label: '群晖 Synology' },
-                  { value: 'docker', label: 'Docker' },
+                  { value: 'docker', label: '通用平台' },
                 ]}
               />
             </Field>
@@ -517,7 +517,7 @@ function EnginePanel() {
             <Field name="public_port" label="内部服务端口">
               <NumberInput min={1024} max={65535} />
             </Field>
-            <Field name="launcher_port" label="Launcher 鉴权端口" desc="本站内置的 launcher 替身，供引擎校验本地 UI 令牌">
+            <Field name="launcher_port" label="本地验证端口" desc="用于下载引擎的本地连接验证">
               <NumberInput min={1024} max={65535} />
             </Field>
             <Field name="single_task_max_mb" label="单任务缓存上限">
@@ -772,7 +772,7 @@ function SystemPanel() {
 
 function AccountAdvanced() {
   return (
-    <SectionForm section="account" title="OAuth 客户端（高级）" description="来自 xunlei-pan-cli 内嵌 detect.secret.yaml 的解密结果，通常无需修改。">
+    <SectionForm section="account" title="OAuth 客户端（高级）" description="用于迅雷账号登录与授权，通常无需修改。">
       {() => (
         <>
           <Field name="client_id" label="Client ID">
@@ -805,7 +805,7 @@ function AboutPanel() {
     <Card className="space-y-4 p-6 text-[14px] leading-relaxed text-ink-2">
       <SectionHeader title="关于" />
       <p className="m-0">
-        本应用基于对官方 <code>xunlei-pan-cli 3.23.3</code> 的逆向分析，内置官方迅雷下载引擎在本机原生运行，以 RESTful API + 单页应用的形式提供链接 / 种子 / 云盘文件下载、云盘管理、云添加、分享、回收站与上传能力。
+        支持链接、种子与云盘文件下载，以及云盘管理、云添加、分享、回收站和文件上传。
       </p>
       <p className="m-0">站点本身不做二次认证：任何能访问本站的人都可以使用已登录的迅雷账号，请仅在可信网络中使用。</p>
       <div className="flex flex-wrap gap-2.5 pt-2">

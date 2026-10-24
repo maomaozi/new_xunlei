@@ -163,7 +163,7 @@ export default function AddDownloadModal({
         </PillButton>
       </div>
       <div className="mt-3 text-[12px] leading-relaxed text-ink-3">
-        由本机迅雷下载引擎（xldownloadlib）执行，支持 P2SP / BT / 磁力 / ed2k，会员自动启用加速；磁力和种子可先选择要下载的文件。
+        支持链接、种子、磁力与电驴下载，会员自动启用加速；磁力和种子可先选择要下载的文件。
       </div>
       <input
         ref={inputRef}

@@ -67,7 +67,7 @@ export default function EngineBanner({ status }: { status: EngineStatus | undefi
     )
   } else if (status.conflicts.length) {
     title = '检测到其他迅雷引擎进程'
-    detail = `PID ${status.conflicts.map((c) => c.pid).join('、')} 使用了相同设备身份时会互相踢下线，请停止其他实例（如 Docker 迅雷）。`
+    detail = `PID ${status.conflicts.map((c) => c.pid).join('、')} 使用了相同设备身份时会互相踢下线，请停止其他实例。`
     action = (
       <PillButton icon={Cpu} onClick={() => navigate('/engine')}>
         查看详情

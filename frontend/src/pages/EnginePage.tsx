@@ -281,7 +281,7 @@ export default function EnginePage() {
     <div>
       <PageHeader
         title="下载引擎"
-        subtitle="内置迅雷下载内核（xldownloadlib）与任务调度器，脱离 NAS / Docker 独立运行"
+        subtitle="查看下载引擎状态、账号信息与运行日志"
         actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => refetch()} spinning={isFetching} />}
       />
       {!status ? (
