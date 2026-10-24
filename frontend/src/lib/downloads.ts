@@ -1,4 +1,4 @@
-import type { DownloadStatus, DownloadTask, EngineState } from './api'
+import type { DownloadList, DownloadStatus, DownloadTask, EngineState, LiveDownloads } from './api'
 
 type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'muted'
 
@@ -69,4 +69,37 @@ export function linkName(url: string): string {
   } catch {
     return ''
   }
+}
+
+/**
+ * Overlay the engine's in-memory progress on the cloud task list. The cloud copy of a running
+ * task is patched about once a minute, the live values every second.
+ */
+export function mergeLive(list: DownloadList | undefined, live: LiveDownloads | undefined): DownloadList | undefined {
+  if (!list || !live?.tasks.length) return list
+  const byId = new Map(live.tasks.map((task) => [task.id, task]))
+  const tasks = list.tasks.map((task) => {
+    const current = byId.get(task.id)
+    if (!current) return task
+    return {
+      ...task,
+      status: current.status,
+      progress: current.progress,
+      speed: current.speed,
+      speedup_speed: current.speedup_speed,
+      size: current.size || task.size,
+      done_bytes: current.size ? current.done_bytes : task.done_bytes,
+      local_path: task.local_path || current.local_path,
+    }
+  })
+  return { ...list, tasks, summary: { ...list.summary, speed: live.speed } }
+}
+
+/** Ids and statuses of live tasks; a change means the cloud list should be refetched. */
+export function liveSignature(live: LiveDownloads | undefined): string {
+  return (live?.tasks ?? []).map((task) => `${task.id}:${task.status}`).sort().join(',')
+}
+
+export function formatProgress(value: number): string {
+  return value >= 100 || value <= 0 ? `${Math.round(value)}%` : `${value.toFixed(1)}%`
 }

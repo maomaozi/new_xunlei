@@ -22,7 +22,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAccountOverview, useAccountStatus } from '../hooks/useAccount'
 import { useIsMobile } from '../hooks/useMediaQuery'
-import { useDownloads } from '../hooks/useEngine'
+import { useLiveDownloads } from '../hooks/useEngine'
 import { useTransfers } from '../hooks/useTransfers'
 import { formatBytes, formatSpeed, percent } from '../lib/format'
 import { useAppSettings } from '../lib/settingsContext'
@@ -92,32 +92,35 @@ function ThemeToggle({ compact }: { compact?: boolean }) {
 }
 
 /** Active task counts per nav entry: engine downloads and host transfers. */
+/** Engine tasks in progress, read locally from the engine every second. */
 function useActiveDownloads() {
   const { data: account } = useAccountStatus()
-  return useDownloads('active', Boolean(account?.logged_in))
+  const { data } = useLiveDownloads(Boolean(account?.logged_in))
+  const active = data?.tasks.filter((t) => t.status === 'queued' || t.status === 'running').length ?? 0
+  return { active, speed: data?.speed ?? 0 }
 }
 
 function useActiveCounts(): Record<string, number> {
   const { data: transfers } = useTransfers()
-  const { data: downloads } = useActiveDownloads()
+  const downloads = useActiveDownloads()
   return {
     '/transfers': (transfers?.summary.running ?? 0) + (transfers?.summary.queued ?? 0),
-    '/downloads': downloads?.summary.active ?? 0,
+    '/downloads': downloads.active,
   }
 }
 
 function SpeedIndicator() {
   const { data } = useTransfers()
-  const { data: downloads } = useActiveDownloads()
+  const downloads = useActiveDownloads()
   const navigate = useNavigate()
   const summary = data?.summary
-  const engineSpeed = downloads?.summary.speed ?? 0
-  const busy = (summary ? summary.running + summary.queued : 0) + (downloads?.summary.active ?? 0)
+  const engineSpeed = downloads.speed
+  const busy = (summary ? summary.running + summary.queued : 0) + downloads.active
   if (!summary || busy === 0) return null
   return (
     <button
       type="button"
-      onClick={() => navigate(downloads?.summary.active ? '/downloads' : '/transfers')}
+      onClick={() => navigate(downloads.active ? '/downloads' : '/transfers')}
       className="neu-press flex w-full cursor-pointer items-center gap-2 rounded-2xl border-0 px-3.5 py-2.5 text-xs text-ink-2 tabular-nums"
     >
       <span className="pulse-dot h-2 w-2 rounded-full bg-accent" />

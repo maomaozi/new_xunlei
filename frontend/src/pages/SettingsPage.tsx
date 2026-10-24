@@ -481,8 +481,12 @@ function EnginePanel() {
               <Input placeholder="默认" maxLength={60} />
             </Field>
             <SwitchField name="delete_files_with_task" label="删除任务时默认同时删除文件" />
-            <Field name="task_poll_seconds" label="任务进度刷新间隔" desc="有进行中任务时「下载」页的轮询频率">
-              <NumberInput min={1} max={60} suffix="秒" />
+            <SwitchField name="live_progress" label="实时进度" desc="直接从本机引擎内存读取进度与速度（约 10ms，不经迅雷云端；云端记录约每分钟才更新一次）" />
+            <Field name="live_poll_ms" label="实时进度刷新间隔">
+              <NumberInput min={500} max={10000} step={500} suffix="毫秒" />
+            </Field>
+            <Field name="task_poll_seconds" label="云端任务列表刷新间隔" desc="有进行中任务时同步任务列表与状态的频率；任务开始、完成或状态变化时会立即刷新">
+              <NumberInput min={2} max={120} suffix="秒" />
             </Field>
           </>
         )}
@@ -507,8 +511,8 @@ function EnginePanel() {
             <Field name="nas_id" label="NAS ID">
               <Input className="!font-mono" />
             </Field>
-            <Field name="control_port" label="本地控制端口" desc="仅监听 127.0.0.1">
-              <NumberInput min={1024} max={65535} />
+            <Field name="control_port" label="本地控制端口" desc="仅监听 127.0.0.1；开启实时进度后引擎还会占用 端口+2 作为 pprof 调试端口">
+              <NumberInput min={1024} max={65533} />
             </Field>
             <Field name="public_port" label="内部服务端口">
               <NumberInput min={1024} max={65535} />
@@ -527,7 +531,7 @@ function EnginePanel() {
             </Field>
             <SwitchField name="auto_restart" label="异常退出自动重启" desc="按 5 秒起指数退避，最长 60 秒" />
             <SwitchField name="stop_with_app" label="随本服务一起停止" desc="关闭后本服务重启时引擎继续运行，并在下次启动时自动接管" />
-            <Field name="log_max_mb" label="日志轮转大小" desc="启动引擎时日志超过该大小会转存为 engine.log.1">
+            <Field name="log_max_mb" label="日志轮转大小" desc="引擎日志超过该大小时转存为 engine.log.1（运行中也会检查；实时进度需要 debug 日志级别，日志增长较快）">
               <NumberInput min={1} max={1024} suffix="MB" />
             </Field>
           </>

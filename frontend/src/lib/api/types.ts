@@ -400,6 +400,8 @@ export interface EngineSettings {
   stop_with_app: boolean
   log_max_mb: number
   task_poll_seconds: number
+  live_progress: boolean
+  live_poll_ms: number
   delete_files_with_task: boolean
 }
 
@@ -496,6 +498,26 @@ export interface DownloadTask {
   created_at: string
   updated_at: string
   params: Record<string, string>
+}
+
+export interface LiveTask {
+  id: string
+  name: string
+  status: DownloadStatus
+  running: boolean
+  progress: number
+  size: number
+  done_bytes: number
+  speed: number
+  speedup_speed: number
+  local_path: string
+}
+
+/** In-memory engine state: only tasks the engine is processing, refreshed every second. */
+export interface LiveDownloads {
+  tasks: LiveTask[]
+  running: number
+  speed: number
 }
 
 export interface DownloadSummary {

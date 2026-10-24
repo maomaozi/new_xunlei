@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import platform
+import shutil
 import signal
 import time
 from dataclasses import dataclass
@@ -280,6 +281,24 @@ class EngineProcess:
         self.last_exit_at = time.time()
         self._proc = None
         self.pid = None
+
+
+def rotate_log(path: Path, max_bytes: int) -> bool:
+    """Copy-truncate the engine log once it exceeds `max_bytes`.
+
+    The engine writes through an O_APPEND descriptor, so truncating in place is safe while it
+    runs (debug logging, needed for the live-state route, grows the log quickly).
+    """
+    try:
+        if path.stat().st_size <= max_bytes:
+            return False
+        shutil.copyfile(path, path.with_suffix(".log.1"))
+        with path.open("r+b") as handle:
+            handle.truncate(0)
+    except OSError as error:
+        logger.warning("Engine log rotation failed: %s", error)
+        return False
+    return True
 
 
 def tail_log(path: Path, max_bytes: int) -> list[str]:

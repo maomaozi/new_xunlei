@@ -6,11 +6,13 @@
   (`svctoken.VerifyToken`). Local control routes accept scope `LocalToken` in the
   `LocalToken: LocalToken <jwt>` header; the full device/drive API accepts scope `UIAuth` in
   the `pan-auth` header and then asks the launcher to confirm it.
+- `/device/debug` (in-memory task state) additionally needs `passwd=debug_passwd(today)`.
 - The launcher answers `GET /launcher/auth` with `{"key": StaticKey(<pan-auth>)}` where
   `StaticKey` is an MD5 over the token interleaved with constants (`utils.StaticKey`).
 """
 
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -20,6 +22,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 SECRET_FILE = "26ebb6810d1737970457e6a91cdbd3d2"
+DEBUG_SALT = "asdfhjjkeunzmxll"
 SECRET_KEY = b"08e8a6fbfba6fbd6"
 LOCAL_SCOPE = "LocalToken"
 UI_SCOPE = "UIAuth"
@@ -66,6 +69,11 @@ def sign_token(secret: bytes, scope: str, ttl: int = 3600, now: float | None = N
     payload = f"{header}.{_b64(json.dumps(claims, separators=(',', ':')).encode())}"
     signature = hmac.new(secret, payload.encode(), hashlib.sha256).digest()
     return f"{payload}.{_b64(signature)}"
+
+
+def debug_passwd(day: datetime.date) -> str:
+    """`utils.CheckDebugPasswd`: md5(salt + YYYYMMDD) of the engine's local date."""
+    return hashlib.md5(f"{DEBUG_SALT}{day.strftime('%Y%m%d')}".encode()).hexdigest()
 
 
 def static_key(token: str) -> str:

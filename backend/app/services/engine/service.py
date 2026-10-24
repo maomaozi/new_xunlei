@@ -39,6 +39,8 @@ from app.schemas.engine import (
     EngineStatus,
     EngineUser,
     ForeignEngine,
+    LiveDownloads,
+    LiveTask,
     SpeedupState,
     TrialInfo,
 )
@@ -52,6 +54,7 @@ from app.services.engine.process import (
     binary_version,
     find_binary,
     foreign_engines,
+    rotate_log,
     tail_log,
 )
 from app.services.settings_store import SettingsStore
@@ -90,6 +93,7 @@ WATCH_INTERVAL = 3.0
 SNAPSHOT_TTL = 12.0
 MAX_TASK_PAGES = 10
 SUMMARY_TTL = 20.0
+LIVE_TTL = 0.4
 VIP_GROUP = re.compile(r"^vip_\d+_(\d+)_")
 
 
@@ -181,6 +185,61 @@ def to_download(task: DriveTask) -> DownloadTask:
     )
 
 
+def parse_live(snapshot: JsonObject) -> LiveDownloads:
+    """Tasks in the runner's memory (`Process`) with the kernel's per-second progress/speed."""
+    running_ids = snapshot.get("Running") if isinstance(snapshot.get("Running"), dict) else {}
+    assert isinstance(running_ids, dict)
+    tasks: list[LiveTask] = []
+    for item in snapshot.get("Process") or []:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        params = item.get("params") if isinstance(item.get("params"), dict) else {}
+        assert isinstance(params, dict)
+        status = STATUS_BY_PHASE.get(str(item.get("phase") or ""), "queued")
+        running = bool(running_ids.get(item["id"]))
+        try:
+            progress = max(0.0, min(100.0, float(item.get("progress") or 0)))
+        except (TypeError, ValueError):
+            progress = 0.0
+        if status == "complete":
+            progress = 100.0
+        size = _int(item.get("file_size"))
+        moving = running and status == "running"
+        tasks.append(
+            LiveTask(
+                id=str(item["id"]),
+                name=str(item.get("name") or item.get("file_name") or ""),
+                status=status,
+                running=running,
+                progress=round(progress, 2),
+                size=size,
+                done_bytes=int(size * progress / 100),
+                speed=_int(params.get("speed")) if moving else 0,
+                speedup_speed=_int(params.get("speedup_speed")) if moving else 0,
+                local_path=str(params.get("real_path") or ""),
+            )
+        )
+    return LiveDownloads(
+        tasks=tasks, running=sum(t.running for t in tasks), speed=sum(t.speed for t in tasks)
+    )
+
+
+def overlay(task: DownloadTask, live: LiveTask) -> DownloadTask:
+    """Prefer the engine's in-memory values; the cloud copy is patched at most once a minute."""
+    update: dict[str, object] = {
+        "status": live.status,
+        "progress": live.progress,
+        "speed": live.speed,
+        "speedup_speed": live.speedup_speed,
+    }
+    if live.size:
+        update["size"] = live.size
+        update["done_bytes"] = live.done_bytes
+    if live.local_path and not task.local_path:
+        update["local_path"] = live.local_path
+    return task.model_copy(update=update)
+
+
 def summarize(tasks: list[DownloadTask]) -> DownloadSummary:
     return DownloadSummary(
         total=len(tasks),
@@ -240,6 +299,9 @@ class EngineService:
         self._applied: tuple[object, ...] | None = None
         self._summary: DownloadSummary | None = None
         self._summary_at = 0.0
+        self._live: LiveDownloads | None = None
+        self._live_at = 0.0
+        self._live_lock = asyncio.Lock()
         self._lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._watchdog: asyncio.Task[None] | None = None
@@ -418,6 +480,7 @@ class EngineService:
             await self.process.stop()
             await self._launch()
             return
+        await asyncio.to_thread(rotate_log, self.home / "engine.log", cfg.log_max_mb * 1024 * 1024)
         await self._refresh()
         if self._snapshot and self._applied != self._config_signature():
             await self._apply_config()
@@ -586,6 +649,10 @@ class EngineService:
             stop_reason=str(stats.get("stop_reason") or ""),
         )
 
+    async def clean_trial(self) -> TrialInfo:
+        await self.require_running().trial_clean()
+        return await self.trial()
+
     async def apply_trial(self) -> TrialInfo:
         await self.require_running().trial_apply()
         return await self.trial()
@@ -635,8 +702,33 @@ class EngineService:
                 break
         return tasks
 
+    async def live(self) -> LiveDownloads:
+        """In-memory task state, shared by concurrent callers for a short moment."""
+        client = self.require_running()
+        async with self._live_lock:
+            if self._live is None or time.monotonic() - self._live_at > LIVE_TTL:
+                self._live = parse_live(await client.debug_snapshot())
+                self._live_at = time.monotonic()
+            return self._live
+
+    async def _live_by_id(self) -> dict[str, LiveTask]:
+        if not self.config.live_progress or not self.process.alive:
+            return {}
+        try:
+            return {task.id: task for task in (await self.live()).tasks}
+        except AppError as error:
+            logger.debug("Live engine state unavailable: %s", error.message)
+            return {}
+
     async def list_downloads(self, status_filter: DownloadFilter) -> DownloadList:
-        tasks = [to_download(t) for t in await self._engine_tasks(FILTER_PHASES[status_filter])]
+        live = await self._live_by_id()
+        # Statuses follow the in-memory engine state, so filter after overlaying it; the cloud
+        # query still uses the phase filter (a task the engine just finished is fetched again
+        # once the cloud catches up).
+        tasks = [
+            overlay(task, live[task.id]) if task.id in live else task
+            for task in map(to_download, await self._engine_tasks(FILTER_PHASES[status_filter]))
+        ]
         wanted = FILTER_STATUSES[status_filter]
         tasks = [t for t in tasks if t.status in wanted]
         if status_filter == "all":
@@ -656,7 +748,9 @@ class EngineService:
         self._summary_at = 0.0
 
     async def get_download(self, task_id: str) -> DownloadTask:
-        return to_download(await self.api.get_task(task_id, self.api.device_space))
+        task = to_download(await self.api.get_task(task_id, self.api.device_space))
+        live = (await self._live_by_id()).get(task_id)
+        return overlay(task, live) if live else task
 
     async def add_links(
         self, urls: list[str], *, name: str, files: list[int] | None, folder_id: str

@@ -2,7 +2,7 @@ import { Checkbox } from 'antd'
 import { CheckCircle2, CircleAlert, Clock3, Cloud, Info, Link2, Magnet, Pause, Play, RotateCw, Trash2 } from 'lucide-react'
 import type { DownloadTask } from '../lib/api'
 import { cx } from '../lib/cx'
-import { DOWNLOAD_STATUS, accelerations, remainingBytes } from '../lib/downloads'
+import { DOWNLOAD_STATUS, accelerations, formatProgress, remainingBytes } from '../lib/downloads'
 import { formatBytes, formatEta, formatRelative, formatSpeed } from '../lib/format'
 import { Badge, IconButton, ProgressBar } from './ui'
 
@@ -76,7 +76,7 @@ export default function DownloadRow({
         {task.status !== 'complete' && task.status !== 'error' && (
           <div className="mt-2.5 flex items-center gap-3">
             <ProgressBar value={task.progress} animated={running} tone={task.status === 'paused' ? 'warning' : 'accent'} className="flex-1" />
-            <span className="w-10 text-right text-xs text-ink-2 tabular-nums">{task.progress}%</span>
+            <span className="w-12 text-right text-xs text-ink-2 tabular-nums">{formatProgress(task.progress)}</span>
           </div>
         )}
         {task.local_path && <div className="mt-1 hidden truncate text-[11px] text-ink-3 md:block">{task.local_path}</div>}

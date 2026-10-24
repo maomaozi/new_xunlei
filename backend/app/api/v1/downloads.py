@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Form, UploadFile
 
 from app.api.deps import EngineDep
-from app.api.responses import XUNLEI_ERRORS, errors
+from app.api.responses import ENGINE_ERRORS, XUNLEI_ERRORS, errors
 from app.api.v1.offline import parse_indexes, read_torrent
 from app.schemas.common import OkResponse
 from app.schemas.engine import (
@@ -13,6 +13,7 @@ from app.schemas.engine import (
     DownloadIdsRequest,
     DownloadList,
     DownloadTask,
+    LiveDownloads,
 )
 from app.services.xunlei.links import with_trackers
 
@@ -90,6 +91,21 @@ async def create_from_torrent(
 )
 async def create_cloud(body: CloudDownloadRequest, engine: EngineDep) -> DownloadCreateResponse:
     return await engine.add_cloud_files(body.file_ids, body.folder_id)
+
+
+@router.get(
+    "/live",
+    response_model=LiveDownloads,
+    summary="Live engine progress",
+    description=(
+        "Progress and speed of the tasks the engine is processing, read from its memory "
+        "(`/device/debug`, ~10 ms, no cloud round-trip). The cloud copy of a task is only "
+        "patched about once a minute; poll this for live progress. Access: Public."
+    ),
+    responses=ENGINE_ERRORS,
+)
+async def live(engine: EngineDep) -> LiveDownloads:
+    return await engine.live()
 
 
 @router.get(

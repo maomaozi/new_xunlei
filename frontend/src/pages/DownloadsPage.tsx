@@ -1,17 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Checkbox, Input, Segmented } from 'antd'
 import { ArrowDown, CheckCircle2, CircleAlert, Download, Gauge, Pause, Play, Plus, RefreshCw, RotateCw, Search, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import AddDownloadModal from '../components/AddDownloadModal'
 import DownloadDetailModal from '../components/DownloadDetailModal'
 import DownloadRow, { type DownloadAction } from '../components/DownloadRow'
 import EngineBanner from '../components/EngineBanner'
 import LoginRequired from '../components/LoginRequired'
 import PageHeader from '../components/PageHeader'
-import { Card, EmptyState, IconButton, ListSkeleton, PillButton, Stat } from '../components/ui'
-import { useDownloads, useEngineStatus } from '../hooks/useEngine'
+import { Badge, Card, EmptyState, IconButton, ListSkeleton, PillButton, Stat } from '../components/ui'
+import { useDownloads, useEngineStatus, useLiveDownloads } from '../hooks/useEngine'
 import { downloadsApi, engineApi, errorMessage, isAuthError, type DownloadFilter, type DownloadTask } from '../lib/api'
 import { formatDuration, formatSpeed } from '../lib/format'
+import { liveSignature, mergeLive } from '../lib/downloads'
 import { useAppSettings } from '../lib/settingsContext'
 
 const FILTERS: { value: DownloadFilter; label: string }[] = [
@@ -64,13 +65,24 @@ export default function DownloadsPage() {
   const [adding, setAdding] = useState(false)
   const [detail, setDetail] = useState<DownloadTask | null>(null)
   const query = useDownloads(filter)
-  const summary = query.data?.summary
+  const live = useLiveDownloads(engine.data?.state === 'running')
+  const data = useMemo(() => mergeLive(query.data, live.data), [query.data, live.data])
+  const summary = data?.summary
+
+  // The cloud list lags the engine; refetch it when a task appears, finishes or changes state.
+  const signature = liveSignature(live.data)
+  const lastSignature = useRef(signature)
+  useEffect(() => {
+    if (signature === lastSignature.current) return
+    lastSignature.current = signature
+    void queryClient.invalidateQueries({ queryKey: ['downloads'] })
+  }, [signature, queryClient])
 
   const tasks = useMemo(() => {
-    const all = query.data?.tasks ?? []
+    const all = data?.tasks ?? []
     const word = keyword.trim().toLowerCase()
     return word ? all.filter((t) => t.name.toLowerCase().includes(word) || t.local_path.toLowerCase().includes(word)) : all
-  }, [query.data, keyword])
+  }, [data, keyword])
   const chosen = tasks.filter((t) => selected.has(t.id))
 
   const refresh = () => {
@@ -170,6 +182,11 @@ export default function DownloadsPage() {
         <Stat icon={CheckCircle2} label="已完成" value={summary?.complete ?? 0} tone="success" />
         <Stat icon={CircleAlert} label="失败" value={summary?.error ?? 0} tone="danger" />
       </div>
+      {live.error && settings?.engine.live_progress && (
+        <div className="mb-4 text-[12px] text-ink-3">
+          <Badge tone="warning">实时进度不可用</Badge> {errorMessage(live.error)}，进度改为按云端记录显示（约每分钟更新）。
+        </div>
+      )}
       {engine.data?.state === 'running' && engine.data.logged_in && <TrialStrip active={summary?.active ?? 0} />}
       <Card className="p-3 md:p-4">
         <div className="flex flex-wrap items-center gap-3 px-2 pt-1 pb-3">

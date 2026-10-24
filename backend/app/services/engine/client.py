@@ -1,5 +1,6 @@
 """HTTP client for the engine's loopback API (`DriveListen`)."""
 
+import datetime
 import json
 import logging
 from collections.abc import Mapping
@@ -9,7 +10,13 @@ from typing import Any
 import httpx
 
 from app.core.errors import AppError
-from app.services.engine.tokens import LOCAL_SCOPE, UI_SCOPE, read_secret, sign_token
+from app.services.engine.tokens import (
+    LOCAL_SCOPE,
+    UI_SCOPE,
+    debug_passwd,
+    read_secret,
+    sign_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +116,48 @@ class EngineClient:
     async def set_local_config(self, config: JsonObject) -> None:
         await self.call("POST", "/device/local_config", scope=LOCAL_SCOPE, json_body=config)
 
+    async def debug_snapshot(self) -> JsonObject:
+        """In-memory runner state (`/device/debug`): queued/running tasks with live progress.
+
+        The password depends on the engine's local date; around midnight the neighbouring
+        days are tried as well. The route answers 403 unless the engine logs at debug level
+        (it starts at info), so a 403 switches the level once and retries.
+        """
+        today = datetime.date.today()
+        for offset in (0, -1, 1):
+            passwd = debug_passwd(today + datetime.timedelta(days=offset))
+            response = await self._debug_get(passwd)
+            if response.status_code == 403:
+                await self.set_log_level("debug", passwd)
+                response = await self._debug_get(passwd)
+            if response.status_code == 401:
+                continue
+            if response.status_code != 200:
+                logger.warning("Engine /device/debug -> %d", response.status_code)
+                raise AppError("engine_error", 502, "下载引擎实时状态读取失败。")
+            data = response.json()
+            return data if isinstance(data, dict) else {}
+        raise AppError("engine_error", 502, "下载引擎拒绝了实时状态查询。")
+
+    async def _debug_get(self, passwd: str) -> httpx.Response:
+        return await self.request(
+            "GET", "/device/debug", scope=LOCAL_SCOPE, params={"passwd": passwd}, limit=5
+        )
+
+    async def set_log_level(self, level: str, passwd: str) -> None:
+        """`/device/debug/loglevel/:level`; `debug` also starts Go pprof on control port + 2."""
+        response = await self.request(
+            "GET",
+            f"/device/debug/loglevel/{level}",
+            scope=LOCAL_SCOPE,
+            params={"passwd": passwd},
+            limit=5,
+        )
+        if response.status_code == 200:
+            logger.info("Engine log level set to %s to unlock its debug routes", level)
+        else:
+            logger.warning("Engine log level change -> %d", response.status_code)
+
     async def control_url(self) -> str:
         data = await self.call("GET", "/device/control", scope=LOCAL_SCOPE, limit=5)
         return str(data.get("url") or "") if isinstance(data, dict) else ""
@@ -139,6 +188,10 @@ class EngineClient:
     async def trial_config(self) -> JsonObject:
         data = await self.call("GET", "/device/v1/try_speed/get_config", limit=10)
         return data if isinstance(data, dict) else {}
+
+    async def trial_clean(self) -> None:
+        """`/device/v1/try_speed/debug/clean`: resets the local trial count and timer."""
+        await self.call("POST", "/device/v1/try_speed/debug/clean", json_body={}, limit=20)
 
     async def trial_apply(self) -> None:
         await self.call("POST", "/device/v1/try_speed/apply", json_body={}, limit=20)

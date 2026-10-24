@@ -81,6 +81,15 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   keeps its own chain via its QR login (`/auth/qrlogin`, `/auth/qrlogin/status`); it refreshes
   when less than 10% of `expires_in` is left. `/auth/credential` only exists on platforms
   labelled `withSetCredential`, which use other client ids.
+- Live progress: the engine patches a running task's cloud copy at most every 60 s
+  (`lastPatchTime more than 60s`), while its kernel loop refreshes progress/speed every second.
+  `GET /device/debug?passwd=md5("asdfhjjkeunzmxll"+YYYYMMDD)` (LocalToken, loopback only,
+  `utils.CheckDebugPasswd`) returns that in-memory state (`Process`, `Running`) in ~10 ms.
+  The route answers 403 unless the engine logs at debug level (it starts at info), so the
+  client calls `/device/debug/loglevel/debug?passwd=…` once and retries; debug level also
+  starts Go pprof on control port + 2, and the watchdog copy-truncates the faster growing
+  log. `GET /api/v1/downloads/live` serves it and the task list overlays it; the UI polls it every
+  second and refetches the cloud list only when the set or status of live tasks changes.
 - Tasks: progress, `speed`, `real_path`, `hash`, `error` and `speedup` (`p2p`/`vip`/`super`) are
   reported in the task params. Finished tasks keep their data on `delete_files=true`, so the
   backend removes `real_path` itself (only inside the engine download folders). A lost

@@ -115,7 +115,7 @@ class EngineSettings(SettingsSection):
         default="qnap", description="NAS platform identity whose privilege the account holds"
     )
     nas_id: str = Field(default="123456", min_length=1, max_length=64)
-    control_port: int = Field(default=5075, ge=1024, le=65535)
+    control_port: int = Field(default=5075, ge=1024, le=65533)
     public_port: int = Field(default=21607, ge=1024, le=65535)
     launcher_port: int = Field(default=5071, ge=1024, le=65535)
     download_dir: str = Field(default=str(Path.home() / "Downloads" / "xunlei"))
@@ -130,13 +130,20 @@ class EngineSettings(SettingsSection):
     auto_restart: bool = Field(default=True, description="Restart the engine when it exits")
     stop_with_app: bool = Field(default=True, description="Stop the engine with this server")
     log_max_mb: int = Field(default=20, ge=1, le=1024)
-    task_poll_seconds: int = Field(default=2, ge=1, le=60)
+    task_poll_seconds: int = Field(
+        default=10, ge=2, le=120, description="Cloud task list refresh while tasks are active"
+    )
+    live_progress: bool = Field(
+        default=True, description="Read progress/speed from the engine's memory every interval"
+    )
+    live_poll_ms: int = Field(default=1000, ge=500, le=10000)
     delete_files_with_task: bool = False
 
     @model_validator(mode="after")
     def distinct_ports(self) -> "EngineSettings":
-        ports = {self.control_port, self.public_port, self.launcher_port}
-        if len(ports) != 3:
+        # control_port + 2 is taken by the engine's pprof server once debug logging is on.
+        ports = {self.control_port, self.public_port, self.launcher_port, self.control_port + 2}
+        if len(ports) != 4:
             raise ValueError("engine ports must be different")
         return self
 

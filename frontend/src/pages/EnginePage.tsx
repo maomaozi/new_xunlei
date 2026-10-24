@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Input } from 'antd'
-import { Cpu, HardDrive, LogIn, LogOut, Play, RefreshCw, RotateCcw, Settings, Square, TriangleAlert } from 'lucide-react'
+import { Cpu, Eraser, Gauge, HardDrive, LogIn, LogOut, Play, RefreshCw, Rocket, RotateCcw, Settings, Square, TriangleAlert } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import EngineLoginModal from '../components/EngineLoginModal'
@@ -9,7 +9,7 @@ import { Badge, Card, IconButton, PillButton, ProgressBar, SectionHeader } from 
 import { useEngineStatus } from '../hooks/useEngine'
 import { engineApi, errorMessage, type EngineStatus } from '../lib/api'
 import { ENGINE_STATE } from '../lib/downloads'
-import { formatBytes, formatDuration, formatTime, percent } from '../lib/format'
+import { formatBytes, formatDuration, formatSpeed, formatTime, percent } from '../lib/format'
 
 function InfoList({ rows }: { rows: [string, ReactNode][] }) {
   return (
@@ -186,6 +186,68 @@ function DisksCard({ status }: { status: EngineStatus }) {
   )
 }
 
+/** Super speed trial: usage, start and the engine's debug reset (`try_speed/debug/clean`). */
+function TrialCard() {
+  const { message, modal } = App.useApp()
+  const queryClient = useQueryClient()
+  const trial = useQuery({ queryKey: ['engine-trial'], queryFn: engineApi.trial, refetchInterval: 15000, retry: false })
+  const data = trial.data
+  const left = data ? Math.max(0, data.total - data.used) : 0
+  const trying = Boolean(data && data.remaining_seconds > 0)
+
+  const apply = async () => {
+    try {
+      queryClient.setQueryData(['engine-trial'], await engineApi.applyTrial())
+      message.success('已开启超级加速试用')
+    } catch (error) {
+      message.error(errorMessage(error))
+    }
+  }
+  const clean = () =>
+    modal.confirm({
+      title: '重置超级加速试用？',
+      content: '清除引擎本地记录的试用次数与计时（调试接口 try_speed/debug/clean），不影响会员状态。',
+      okText: '重置',
+      onOk: async () => {
+        try {
+          queryClient.setQueryData(['engine-trial'], await engineApi.cleanTrial())
+          message.success('试用记录已重置')
+        } catch (error) {
+          message.error(errorMessage(error))
+        }
+      },
+    })
+
+  return (
+    <Card className="p-5 md:p-6">
+      <SectionHeader title="超级加速试用" extra={<Gauge size={17} className="text-ink-3" />} />
+      {trial.error ? (
+        <div className="text-[13px] text-danger">{errorMessage(trial.error)}</div>
+      ) : (
+        <InfoList
+          rows={[
+            ['可用次数', data ? `${left} / ${data.total}` : '--'],
+            ['本次剩余', trying && data ? formatDuration(data.remaining_seconds) : '未在试用'],
+            ['单次时长', data?.timeout_seconds ? formatDuration(data.timeout_seconds) : '--'],
+            ['平均速度', data?.average_speed ? formatSpeed(data.average_speed) : '--'],
+            ['累计节省', data?.saved_seconds ? formatDuration(data.saved_seconds) : '--'],
+            ['结束原因', data?.stop_reason || '--'],
+          ]}
+        />
+      )}
+      <div className="mt-4 flex flex-wrap gap-2.5">
+        <PillButton primary icon={Rocket} disabled={!data || !left || trying} onClick={() => apply()}>
+          开启试用
+        </PillButton>
+        <PillButton icon={Eraser} onClick={clean}>
+          重置试用
+        </PillButton>
+      </div>
+      <div className="mt-3 text-[12px] text-ink-3">开启试用需要至少一个正在下载的任务。</div>
+    </Card>
+  )
+}
+
 function LogsCard() {
   const [lines, setLines] = useState(200)
   const [keyword, setKeyword] = useState('')
@@ -250,6 +312,7 @@ export default function EnginePage() {
               <DisksCard status={status} />
             </div>
           </div>
+          {status.state === 'running' && status.logged_in && <TrialCard />}
           <LogsCard />
         </div>
       )}

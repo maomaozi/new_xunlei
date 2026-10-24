@@ -23,7 +23,7 @@ import { PHASE_META } from '../lib/tasks'
 import { cx } from '../lib/cx'
 import { Badge, Card, EmptyState, PillButton, ProgressBar, Ring, SectionHeader, Skeleton, Stat } from '../components/ui'
 import { useAccountOverview } from '../hooks/useAccount'
-import { useDownloads, useEngineStatus } from '../hooks/useEngine'
+import { useEngineStatus, useLiveDownloads } from '../hooks/useEngine'
 import { useTransfers } from '../hooks/useTransfers'
 import { ENGINE_STATE } from '../lib/downloads'
 import { errorMessage, eventsApi, offlineApi, systemApi } from '../lib/api'
@@ -80,7 +80,8 @@ export default function OverviewPage() {
   const transfers = useTransfers()
   const engine = useEngineStatus()
   const loggedIn = overview.data?.status.logged_in
-  const downloads = useDownloads('active', Boolean(loggedIn))
+  const live = useLiveDownloads(Boolean(loggedIn))
+  const activeDownloads = live.data?.tasks.filter((t) => t.status === 'queued' || t.status === 'running').length ?? 0
   const tasks = useQuery({ queryKey: ['offline', 'running-preview'], queryFn: () => offlineApi.list('all'), enabled: Boolean(loggedIn), refetchInterval: 10_000 })
   const events = useQuery({ queryKey: ['events', 'preview'], queryFn: () => eventsApi.list(), enabled: Boolean(loggedIn) })
   const system = useQuery({ queryKey: ['system'], queryFn: systemApi.info, staleTime: 60_000 })
@@ -181,8 +182,8 @@ export default function OverviewPage() {
         <Stat
           icon={ArrowDown}
           label="引擎下载"
-          value={formatSpeed((downloads.data?.summary.speed ?? 0) + (summary?.download_speed ?? 0))}
-          hint={engine.data ? `${ENGINE_STATE[engine.data.state].label} · ${downloads.data?.summary.active ?? 0} 进行中` : undefined}
+          value={formatSpeed((live.data?.speed ?? 0) + (summary?.download_speed ?? 0))}
+          hint={engine.data ? `${ENGINE_STATE[engine.data.state].label} · ${activeDownloads} 进行中` : undefined}
         />
         <Stat icon={ArrowUp} label="本机上传" value={formatSpeed(summary?.upload_speed ?? 0)} hint={`${summary?.running ?? 0} 进行中 · ${summary?.queued ?? 0} 排队`} tone="success" />
         <Stat

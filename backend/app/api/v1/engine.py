@@ -162,6 +162,20 @@ async def apply_trial(engine: EngineDep) -> TrialInfo:
     return await engine.apply_trial()
 
 
+@router.post(
+    "/trial/clean",
+    response_model=TrialInfo,
+    summary="Reset super speed trial",
+    description=(
+        "`/device/v1/try_speed/debug/clean` (`vipbiz.TrySpeedBiz.Clean`): clears the engine's "
+        "local trial usage and timer. Access: Public."
+    ),
+    responses=ENGINE_ERRORS,
+)
+async def clean_trial(engine: EngineDep) -> TrialInfo:
+    return await engine.clean_trial()
+
+
 @router.get(
     "/folders",
     response_model=EngineFolderList,

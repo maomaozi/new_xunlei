@@ -25,6 +25,7 @@ import type {
   DownloadTask,
   EngineFolder,
   EngineStatus,
+  LiveDownloads,
   TrialInfo,
   TransferItem,
   TransferKind,
@@ -117,11 +118,13 @@ export const engineApi = {
   logout: () => http.post<Ok>('/engine/logout'),
   trial: () => http.get<TrialInfo>('/engine/trial'),
   applyTrial: () => http.post<TrialInfo>('/engine/trial'),
+  cleanTrial: () => http.post<TrialInfo>('/engine/trial/clean'),
   folders: (parent_id = '') => http.get<{ folders: EngineFolder[] }>('/engine/folders', { parent_id }),
 }
 
 export const downloadsApi = {
   list: (status: DownloadFilter) => http.get<DownloadList>('/downloads', { status }),
+  live: () => http.get<LiveDownloads>('/downloads/live'),
   get: (id: string) => http.get<DownloadTask>(`/downloads/${id}`),
   create: (body: { urls: string[]; files?: number[]; name?: string; folder_id?: string }) => http.post<Created>('/downloads', body),
   createFromTorrent: (file: File, options: { files?: number[]; folder_id?: string; name?: string }) => {

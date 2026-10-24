@@ -1,18 +1,34 @@
 import asyncio
 import base64
+import datetime
 import hashlib
 import hmac
 import json
 from pathlib import Path
 
+import httpx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi.testclient import TestClient
 
 from app.schemas.xunlei import DriveTask
+from app.services.engine.client import EngineClient
 from app.services.engine.launcher import LauncherServer
-from app.services.engine.process import find_binary, host_arch, tail_log
-from app.services.engine.service import parse_indexes, remove_inside, to_download
-from app.services.engine.tokens import SECRET_FILE, SECRET_KEY, read_secret, sign_token, static_key
+from app.services.engine.process import find_binary, host_arch, rotate_log, tail_log
+from app.services.engine.service import (
+    overlay,
+    parse_indexes,
+    parse_live,
+    remove_inside,
+    to_download,
+)
+from app.services.engine.tokens import (
+    SECRET_FILE,
+    SECRET_KEY,
+    debug_passwd,
+    read_secret,
+    sign_token,
+    static_key,
+)
 
 
 def _encrypt(secret: bytes) -> bytes:
@@ -142,3 +158,88 @@ def test_engine_settings_reject_duplicate_ports(client: TestClient) -> None:
 def test_download_create_requires_single_url_for_files(client: TestClient) -> None:
     body = {"urls": ["magnet:?a", "magnet:?b"], "files": [0]}
     assert client.post("/api/v1/downloads", json=body).status_code == 422
+
+
+def test_debug_password_matches_engine() -> None:
+    # Value accepted by the running engine on 2026-10-24 (utils.CheckDebugPasswd).
+    assert debug_passwd(datetime.date(2026, 10, 24)) == "19a3e0a2aa35da0ed55588f4d3807bb3"
+
+
+def test_live_snapshot_overrides_stale_cloud_progress() -> None:
+    snapshot = {
+        "Running": {"t1": True},
+        "Process": [
+            {
+                "id": "t1",
+                "name": "a.mkv",
+                "phase": "PHASE_TYPE_RUNNING",
+                "progress": 49.47125,
+                "file_size": "1000",
+                "params": {"speed": "4084831", "speedup_speed": "10", "real_path": "/d/a.mkv"},
+            },
+            {"id": "t2", "phase": "PHASE_TYPE_PENDING", "progress": 0, "params": {"speed": "9"}},
+        ],
+    }
+    live = parse_live(snapshot)
+    assert live.running == 1 and live.speed == 4084831
+    first, second = live.tasks
+    assert first.progress == 49.47 and first.done_bytes == 494 and first.running
+    assert second.status == "queued" and second.speed == 0
+    cloud = to_download(
+        DriveTask.model_validate(
+            {"id": "t1", "type": "user#download", "phase": "PHASE_TYPE_RUNNING", "progress": 0}
+        )
+    )
+    merged = overlay(cloud, first)
+    assert merged.progress == 49.47 and merged.speed == 4084831 and merged.size == 1000
+    assert merged.local_path == "/d/a.mkv" and merged.source == "cloud"
+
+
+def test_live_route_is_not_shadowed_by_task_route(client: TestClient) -> None:
+    response = client.get("/api/v1/downloads/live")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "engine_unavailable"
+
+
+def test_debug_snapshot_unlocks_debug_level_on_403(tmp_path: Path) -> None:
+    (tmp_path / SECRET_FILE).write_bytes(_encrypt(b"0123456789abcdef0123456789abcdef"))
+    calls: list[str] = []
+    unlocked = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal unlocked
+        calls.append(request.url.path)
+        assert request.headers["LocalToken"].startswith("LocalToken ")
+        if request.url.path == "/device/debug/loglevel/debug":
+            unlocked = True
+            return httpx.Response(200, json={})
+        if not unlocked:
+            return httpx.Response(403, json={"error": "permission_denied"})
+        return httpx.Response(200, json={"Process": [], "Running": {}})
+
+    async def run() -> dict[str, object]:
+        client = EngineClient(5075, tmp_path)
+        await client._http.aclose()
+        client._http = httpx.AsyncClient(
+            base_url="http://127.0.0.1:5075", transport=httpx.MockTransport(handler)
+        )
+        try:
+            return await client.debug_snapshot()
+        finally:
+            await client.close()
+
+    assert asyncio.run(run()) == {"Process": [], "Running": {}}
+    assert calls == ["/device/debug", "/device/debug/loglevel/debug", "/device/debug"]
+
+
+def test_rotate_log_copies_and_truncates(tmp_path: Path) -> None:
+    log = tmp_path / "engine.log"
+    log.write_bytes(b"x" * 100)
+    assert not rotate_log(log, 1000)
+    assert rotate_log(log, 50)
+    assert log.stat().st_size == 0 and (tmp_path / "engine.log.1").stat().st_size == 100
+
+
+def test_trial_clean_needs_running_engine(client: TestClient) -> None:
+    response = client.post("/api/v1/engine/trial/clean")
+    assert response.status_code == 503

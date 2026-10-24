@@ -109,7 +109,7 @@ class DownloadTask(BaseModel):
     status: Literal["queued", "running", "paused", "complete", "error"]
     message: str
     error: str
-    progress: int
+    progress: float = Field(description="Percent; exact while the engine reports live progress")
     size: int
     done_bytes: int
     speed: int
@@ -125,6 +125,27 @@ class DownloadTask(BaseModel):
     created_at: str
     updated_at: str
     params: dict[str, str]
+
+
+class LiveTask(BaseModel):
+    id: str
+    name: str
+    status: Literal["queued", "running", "paused", "complete", "error"]
+    running: bool = Field(description="Currently executed by the download kernel")
+    progress: float
+    size: int
+    done_bytes: int
+    speed: int
+    speedup_speed: int
+    local_path: str
+
+
+class LiveDownloads(BaseModel):
+    """In-memory engine state (`/device/debug`): only tasks the engine is processing."""
+
+    tasks: list[LiveTask]
+    running: int
+    speed: int
 
 
 class DownloadSummary(BaseModel):
