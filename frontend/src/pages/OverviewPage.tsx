@@ -51,8 +51,8 @@ function Onboarding() {
         <div className="accent-fill mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[28px]">
           <HardDrive size={36} />
         </div>
-        <h2 className="m-0 text-2xl font-bold text-ink md:text-3xl">欢迎使用迅雷云盘 Web</h2>
-        <p className="mt-3 text-[15px] text-ink-3">登录迅雷账号后即可管理云盘、云添加、分享以及本机高速传输。</p>
+        <h2 className="m-0 text-2xl font-bold text-ink md:text-3xl">欢迎使用迅雷下载</h2>
+        <p className="mt-3 text-[15px] text-ink-3">登录迅雷账号后即可在本机高速下载链接、种子与云盘文件，并管理云盘、云添加与分享。</p>
       </div>
       <div className="stagger grid gap-5 sm:grid-cols-3">
         {options.map((option) => (

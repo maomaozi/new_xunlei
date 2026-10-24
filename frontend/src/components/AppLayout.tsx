@@ -147,8 +147,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <div className="text-[16px] font-bold tracking-tight text-ink">迅雷云盘</div>
-            <div className="text-[11px] text-ink-3">Xunlei Web</div>
+            <div className="text-[16px] font-bold tracking-tight text-ink">迅雷下载</div>
+            <div className="text-[11px] text-ink-3">本机下载 · 云盘</div>
           </div>
         )}
       </div>

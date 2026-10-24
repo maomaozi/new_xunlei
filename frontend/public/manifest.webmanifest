@@ -1,7 +1,7 @@
 {
-  "name": "迅雷云盘",
-  "short_name": "迅雷云盘",
-  "description": "迅雷云盘、云添加与本机传输管理",
+  "name": "迅雷下载",
+  "short_name": "迅雷下载",
+  "description": "迅雷本机下载引擎、云盘、云添加与传输管理",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#e7ebf1",

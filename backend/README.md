@@ -1,4 +1,4 @@
-# Xunlei Web Backend
+# Xunlei Downloader Backend
 
 FastAPI RESTful API wrapping the reverse-engineered Xunlei Pan protocol, with a SQLite
 store for runtime settings, credentials and the server-side transfer queue.

@@ -1,4 +1,4 @@
-# 迅雷云盘 Web（Xunlei Web）
+# 迅雷下载（Xunlei Downloader）
 
 基于对 `xunlei-pan-cli 3.23.3` 的逆向分析开发的前后端分离 Web 应用。内置官方迅雷下载引擎（任务调度器 + xldownloadlib 内核），在普通 Linux 主机上原生运行，不依赖 NAS 或 Docker 版迅雷：FastAPI RESTful 后端 + React 单页应用，拟态（Neumorphism）视觉风格，桌面侧边栏 / 移动端底部标签栏，可作为 PWA 安装到桌面或手机主屏。
 

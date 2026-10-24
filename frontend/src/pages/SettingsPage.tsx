@@ -801,7 +801,7 @@ function AboutPanel() {
     <Card className="space-y-4 p-6 text-[14px] leading-relaxed text-ink-2">
       <SectionHeader title="关于" />
       <p className="m-0">
-        本应用基于对官方 <code>xunlei-pan-cli 3.23.3</code> 的逆向分析，以 RESTful API + 单页应用的形式提供迅雷云盘、云添加、分享、回收站、远程设备下载以及服务器高速传输能力。
+        本应用基于对官方 <code>xunlei-pan-cli 3.23.3</code> 的逆向分析，内置官方迅雷下载引擎在本机原生运行，以 RESTful API + 单页应用的形式提供链接 / 种子 / 云盘文件下载、云盘管理、云添加、分享、回收站与上传能力。
       </p>
       <p className="m-0">站点本身不做二次认证：任何能访问本站的人都可以使用已登录的迅雷账号，请仅在可信网络中使用。</p>
       <div className="flex flex-wrap gap-2.5 pt-2">

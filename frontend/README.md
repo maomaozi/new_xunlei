@@ -1,4 +1,4 @@
-# Xunlei Web Frontend
+# Xunlei Downloader Frontend
 
 React + TypeScript + Vite + Ant Design (zh-CN) + Tailwind CSS v4 + TanStack Query, with a
 neumorphic design system (`src/index.css`, `src/components/ui.tsx`), light/dark themes,

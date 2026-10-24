@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { Input, Modal } from 'antd'
-import { ArrowUp, File, Folder, HardDrive } from 'lucide-react'
+import { App, Input, Modal } from 'antd'
+import { ArrowUp, File, Folder, HardDrive, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
-import { errorMessage, systemApi } from '../lib/api'
+import { ApiError, errorMessage, systemApi } from '../lib/api'
+import { useAppSettings } from '../lib/settingsContext'
 import { formatBytes } from '../lib/format'
 import { cx } from '../lib/cx'
 import { ListSkeleton, PillButton } from './ui'
@@ -23,15 +24,30 @@ export default function LocalPathPicker({
   onCancel: () => void
   onPick: (path: string) => void
 }) {
+  const { message } = App.useApp()
+  const { settings, update } = useAppSettings()
   const [path, setPath] = useState<string | undefined>(initialPath)
   const [selected, setSelected] = useState<string | null>(null)
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['fs', path, mode],
     queryFn: () => systemApi.fs(path, mode === 'any'),
     enabled: open,
     retry: false,
   })
   const target = selected ?? data?.path ?? ''
+  const blocked = error instanceof ApiError && error.code === 'path_not_allowed' && path?.startsWith('/') ? path.replace(/\/+$/, '') || '/' : ''
+
+  // The site has no login, so host access stays limited to roots the user allows explicitly.
+  const allow = async () => {
+    const roots = settings?.system.browse_roots ?? []
+    try {
+      await update('system', { browse_roots: roots.includes(blocked) ? roots : [...roots, blocked] })
+      message.success(`已允许访问 ${blocked}`)
+      void refetch()
+    } catch (err) {
+      message.error(errorMessage(err))
+    }
+  }
 
   return (
     <Modal
@@ -72,7 +88,17 @@ export default function LocalPathPicker({
         {isLoading ? (
           <ListSkeleton rows={6} />
         ) : error ? (
-          <div className="py-16 text-center text-sm text-danger">{errorMessage(error)}</div>
+          <div className="flex flex-col items-center gap-4 py-14 text-center text-sm">
+            <span className="text-danger">{errorMessage(error)}</span>
+            {blocked && (
+              <>
+                <PillButton icon={ShieldCheck} onClick={() => void allow()}>
+                  允许访问 {blocked}
+                </PillButton>
+                <span className="max-w-sm text-xs text-ink-3">会加入「设置 → 系统 → 本机访问范围」。本站没有独立登录，能访问本站的人都可以浏览这些目录。</span>
+              </>
+            )}
+          </div>
         ) : data?.entries.length === 0 ? (
           <div className="py-16 text-center text-sm text-ink-3">空目录</div>
         ) : (

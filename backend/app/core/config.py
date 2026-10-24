@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_name: str = "Xunlei Web API"
+    app_name: str = "Xunlei Downloader API"
     app_debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     cors_origins: list[str] = Field(default_factory=list)
