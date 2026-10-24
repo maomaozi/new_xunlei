@@ -12,6 +12,13 @@ export function useMediaQuery(query: string): boolean {
   )
 }
 
+/**
+ * Phone layout: narrow viewports, plus small touch screens whose CSS viewport is wider than
+ * the screen (page zoom below 100%, desktop-website mode). Mirrors the breakpoint variants
+ * in `src/index.css`.
+ */
+export const PHONE_QUERY = '(max-width: 767px), (hover: none) and (pointer: coarse) and (max-device-width: 599px)'
+
 export function useIsMobile(): boolean {
-  return useMediaQuery('(max-width: 767px)')
+  return useMediaQuery(PHONE_QUERY)
 }

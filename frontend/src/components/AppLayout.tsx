@@ -30,7 +30,7 @@ import { CreateContext, useCreate, type CreateActions } from '../lib/createConte
 import { formatBytes, formatSpeed, percent } from '../lib/format'
 import { uploadStore } from '../lib/uploads'
 import AddDownloadModal from './AddDownloadModal'
-import DesktopModeHint from './DesktopModeHint'
+import ZoomHint from './ZoomHint'
 import BottomSheet, { SheetAction, SheetGroup } from './BottomSheet'
 import OfflineCreatePanel from './OfflineCreatePanel'
 import UploadDock from './UploadDock'
@@ -452,7 +452,7 @@ export default function AppLayout() {
               isMobile ? 'pb-[calc(env(safe-area-inset-bottom)+104px)]' : 'pt-8 pb-10',
             )}
           >
-            {!isMobile && <DesktopModeHint />}
+            <ZoomHint />
             <Outlet />
           </main>
         </div>

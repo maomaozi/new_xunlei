@@ -3,6 +3,48 @@
 @import "tailwindcss";
 
 /*
+ * Phones always get the phone layout. The CSS viewport of a phone can be wider than its
+ * screen (Safari page zoom below 100%, "Request Desktop Website"), so the width breakpoints
+ * only apply on devices that are not small touch screens; `device-width` is the physical
+ * screen width and does not change with page zoom. Keep in sync with `PHONE_QUERY`.
+ */
+@custom-variant sm {
+  @media (width >= 40rem) {
+    @media (hover: hover), (pointer: fine), (min-device-width: 600px) {
+      @slot;
+    }
+  }
+}
+@custom-variant md {
+  @media (width >= 48rem) {
+    @media (hover: hover), (pointer: fine), (min-device-width: 600px) {
+      @slot;
+    }
+  }
+}
+@custom-variant lg {
+  @media (width >= 64rem) {
+    @media (hover: hover), (pointer: fine), (min-device-width: 600px) {
+      @slot;
+    }
+  }
+}
+@custom-variant xl {
+  @media (width >= 80rem) {
+    @media (hover: hover), (pointer: fine), (min-device-width: 600px) {
+      @slot;
+    }
+  }
+}
+@custom-variant 2xl {
+  @media (width >= 96rem) {
+    @media (hover: hover), (pointer: fine), (min-device-width: 600px) {
+      @slot;
+    }
+  }
+}
+
+/*
  * Design tokens. The base language is neumorphism (surfaces share the page color and get
  * depth from a light and a dark shadow); frosted glass is used for floating chrome (bars,
  * sheets, menus) and the accent plus a hue-shifted companion color add highlights.
@@ -590,8 +632,8 @@ body {
   border-radius: 18px !important;
 }
 
-/* Phones: dialogs become bottom sheets, like native apps. */
-@media (max-width: 767px) {
+/* Phones: dialogs become bottom sheets, like native apps (same rule as `PHONE_QUERY`). */
+@media (max-width: 767px), (hover: none) and (pointer: coarse) and (max-device-width: 599px) {
   .ant-modal-wrap .ant-modal {
     position: fixed;
     inset: auto 0 0 0;

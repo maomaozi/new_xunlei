@@ -224,7 +224,7 @@ export default function OverviewPage() {
 
   const recent = (
     <div className="mt-5 grid gap-5 md:mt-6 md:gap-6 lg:grid-cols-2">
-      <Card className="p-4 md:p-5">
+      <Card className="min-w-0 p-4 md:p-5">
         <SectionHeader
           title="最近云添加"
           extra={
@@ -259,7 +259,7 @@ export default function OverviewPage() {
           </div>
         )}
       </Card>
-      <Card className="p-4 md:p-5">
+      <Card className="min-w-0 p-4 md:p-5">
         <SectionHeader
           title="最近动态"
           extra={
@@ -327,7 +327,7 @@ export default function OverviewPage() {
     <div>
       <PageHeader title={`${greeting()}，${profile?.name ?? ''}`} subtitle="今天也高速下载吧" />
 
-      <div className="stagger grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className="stagger grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] [&>*]:min-w-0">
         {hero}
         <Card className="p-6">
           <SectionHeader title="快捷操作" />

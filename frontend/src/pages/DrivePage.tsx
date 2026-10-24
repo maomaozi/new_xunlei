@@ -483,7 +483,7 @@ export default function DrivePage() {
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="筛选当前列表"
                 prefix={<Search size={15} className="text-ink-3" />}
-                className="!w-56 !rounded-2xl"
+                className="!w-36 !rounded-2xl lg:!w-56"
               />
               <IconButton icon={RefreshCw} label="刷新" onClick={() => refresh()} spinning={listing.isFetching} />
               <Dropdown menu={sortMenu} trigger={['click']}>

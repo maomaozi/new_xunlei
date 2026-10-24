@@ -105,7 +105,9 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   `UploadDock` shows the browser → server leg of uploads.
 - Phone list pattern: tap a row for its action sheet (`BottomSheet`), long-press to enter
   multi-select; selection swaps the tab bar for an `ActionBar`. Ant Design modals render as
-  bottom sheets below 768px (CSS in `src/index.css`).
+  bottom sheets on phones (CSS in `src/index.css`). A phone is a viewport under 768px or a
+  small touch screen (`device-width` < 600px); the Tailwind breakpoints are redefined so a
+  zoomed-out phone still gets the phone layout, and `ZoomHint` tells the user to reset zoom.
 - Server state via TanStack Query; polling intervals come from settings and speed up only
   while there is activity.
 - Neumorphic design tokens plus frosted glass (`glass`, `glass-card`), the `hero-gradient`
