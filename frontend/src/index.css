@@ -1,0 +1,397 @@
+/* antd styles live in their own layer so Tailwind utilities can override them. */
+@layer theme, base, antd, components, utilities;
+@import "tailwindcss";
+
+/*
+ * Neumorphic design tokens. Surfaces share the page color and get their depth from a
+ * light and a dark shadow; the accent color is only used for state (active, progress).
+ */
+:root,
+:root[data-theme="light"] {
+  --accent: #5b7cfa;
+  --bg: #e7ebf1;
+  --bg-soft: #edf0f5;
+  --surface: #e7ebf1;
+  --text: #2a3140;
+  --text-2: #5d6779;
+  --text-3: #8e97a8;
+  --line: rgba(120, 132, 156, 0.18);
+  --sh-light: rgba(255, 255, 255, 0.92);
+  --sh-dark: rgba(163, 174, 196, 0.62);
+  --sh-dark-strong: rgba(150, 162, 186, 0.75);
+  --success: #2fb67c;
+  --warning: #e9a23b;
+  --danger: #e5566b;
+  --overlay: rgba(231, 235, 241, 0.72);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #22252b;
+  --bg-soft: #262a31;
+  --surface: #22252b;
+  --text: #e5e8ef;
+  --text-2: #a7afbe;
+  --text-3: #757e8f;
+  --line: rgba(255, 255, 255, 0.06);
+  --sh-light: rgba(52, 57, 67, 0.75);
+  --sh-dark: rgba(10, 11, 14, 0.62);
+  --sh-dark-strong: rgba(6, 7, 9, 0.75);
+  --overlay: rgba(34, 37, 43, 0.75);
+  color-scheme: dark;
+}
+
+@theme {
+  --color-accent: var(--accent);
+  --color-page: var(--bg);
+  --color-soft: var(--bg-soft);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-line: var(--line);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: Inter, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --breakpoint-xs: 420px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ---------------------------------------------------------------- surfaces */
+
+@utility neu-raised {
+  background: var(--surface);
+  box-shadow:
+    9px 9px 18px var(--sh-dark),
+    -9px -9px 18px var(--sh-light);
+}
+
+@utility neu-raised-sm {
+  background: var(--surface);
+  box-shadow:
+    4px 4px 9px var(--sh-dark),
+    -4px -4px 9px var(--sh-light);
+}
+
+@utility neu-raised-xs {
+  background: var(--surface);
+  box-shadow:
+    2px 2px 5px var(--sh-dark),
+    -2px -2px 5px var(--sh-light);
+}
+
+@utility neu-inset {
+  background: var(--surface);
+  box-shadow:
+    inset 5px 5px 10px var(--sh-dark),
+    inset -5px -5px 10px var(--sh-light);
+}
+
+@utility neu-inset-sm {
+  background: var(--surface);
+  box-shadow:
+    inset 2px 2px 5px var(--sh-dark),
+    inset -2px -2px 5px var(--sh-light);
+}
+
+@utility neu-convex {
+  background: linear-gradient(145deg, var(--bg-soft), var(--surface));
+  box-shadow:
+    6px 6px 14px var(--sh-dark),
+    -6px -6px 14px var(--sh-light);
+}
+
+/* Pressable surfaces sink into the page while pressed or active. */
+@utility neu-press {
+  background: var(--surface);
+  box-shadow:
+    4px 4px 9px var(--sh-dark),
+    -4px -4px 9px var(--sh-light);
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    color 0.18s ease;
+  &:hover {
+    box-shadow:
+      5px 5px 11px var(--sh-dark-strong),
+      -5px -5px 11px var(--sh-light);
+  }
+  &:active,
+  &[data-active="true"] {
+    box-shadow:
+      inset 3px 3px 7px var(--sh-dark),
+      inset -3px -3px 7px var(--sh-light);
+  }
+  &:active {
+    transform: scale(0.985);
+  }
+}
+
+@utility accent-fill {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 82%, white),
+    var(--accent) 60%,
+    color-mix(in srgb, var(--accent) 80%, black)
+  );
+  color: white;
+  box-shadow:
+    5px 5px 12px color-mix(in srgb, var(--accent) 35%, var(--sh-dark)),
+    -4px -4px 10px var(--sh-light);
+}
+
+@utility glass {
+  background: var(--overlay);
+  backdrop-filter: saturate(1.6) blur(18px);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@keyframes xl-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes xl-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes xl-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+.page-enter {
+  animation: xl-fade-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.stagger > * {
+  animation: xl-fade-up 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 0.03s;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 0.06s;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 0.09s;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 0.12s;
+}
+.stagger > *:nth-child(n + 6) {
+  animation-delay: 0.15s;
+}
+
+.progress-stripes {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, white 35%, transparent),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: xl-shimmer 1.6s linear infinite;
+}
+
+.pulse-dot {
+  animation: xl-pulse-ring 1.4s ease-out infinite;
+}
+
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation-duration: 0s !important;
+  transition-duration: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .stagger > * {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- antd skin */
+
+.ant-btn {
+  font-weight: 500;
+}
+
+.ant-btn-default:not(.ant-btn-dangerous),
+.ant-btn-variant-outlined:not(.ant-btn-dangerous):not(.ant-btn-primary) {
+  border-color: transparent !important;
+  background: var(--surface) !important;
+  box-shadow:
+    3px 3px 7px var(--sh-dark),
+    -3px -3px 7px var(--sh-light) !important;
+}
+
+.ant-btn-default:not(:disabled):active {
+  box-shadow:
+    inset 2px 2px 5px var(--sh-dark),
+    inset -2px -2px 5px var(--sh-light) !important;
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-dangerous) {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 80%, white),
+    var(--accent)
+  ) !important;
+  box-shadow:
+    4px 4px 10px color-mix(in srgb, var(--accent) 30%, var(--sh-dark)),
+    -3px -3px 8px var(--sh-light) !important;
+}
+
+.ant-input-affix-wrapper,
+.ant-input:not(.ant-input-borderless),
+.ant-input-number,
+.ant-select-selector,
+.ant-picker,
+.ant-select .ant-select-content-has-value,
+.ant-input-number-affix-wrapper {
+  border-color: transparent !important;
+  background: var(--surface) !important;
+  box-shadow:
+    inset 2px 2px 5px var(--sh-dark),
+    inset -2px -2px 5px var(--sh-light) !important;
+}
+
+.ant-input-affix-wrapper > .ant-input,
+.ant-input-number-affix-wrapper .ant-input-number {
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.ant-input-affix-wrapper-focused,
+.ant-input:focus,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector {
+  box-shadow:
+    inset 2px 2px 5px var(--sh-dark),
+    inset -2px -2px 5px var(--sh-light),
+    0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent) !important;
+}
+
+.ant-select {
+  border-color: transparent !important;
+}
+
+.ant-modal-container,
+.ant-modal .ant-modal-content {
+  background: var(--surface) !important;
+  box-shadow:
+    18px 18px 40px var(--sh-dark-strong),
+    -10px -10px 30px var(--sh-light) !important;
+}
+
+.ant-modal-mask {
+  backdrop-filter: blur(6px);
+}
+
+.ant-dropdown-menu,
+.ant-select-dropdown,
+.ant-popover-inner,
+.ant-message-notice-content,
+.ant-popconfirm .ant-popover-inner {
+  background: var(--surface) !important;
+  box-shadow:
+    8px 8px 22px var(--sh-dark-strong),
+    -6px -6px 16px var(--sh-light) !important;
+}
+
+.ant-segmented {
+  background: var(--surface) !important;
+  box-shadow:
+    inset 2px 2px 6px var(--sh-dark),
+    inset -2px -2px 6px var(--sh-light);
+  padding: 4px !important;
+}
+
+.ant-segmented .ant-segmented-item-selected,
+.ant-segmented .ant-segmented-thumb {
+  background: var(--surface) !important;
+  box-shadow:
+    3px 3px 7px var(--sh-dark),
+    -3px -3px 7px var(--sh-light) !important;
+  color: var(--accent) !important;
+}
+
+.ant-switch:not(.ant-switch-checked) {
+  background: var(--surface) !important;
+  box-shadow:
+    inset 2px 2px 5px var(--sh-dark),
+    inset -2px -2px 5px var(--sh-light);
+}
+
+.ant-tabs-nav::before {
+  border-color: var(--line) !important;
+}
+
+.ant-empty-description {
+  color: var(--text-3) !important;
+}
+
+.ant-form-item-extra {
+  font-size: 12px;
+}

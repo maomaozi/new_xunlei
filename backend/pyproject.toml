@@ -1,0 +1,43 @@
+[project]
+name = "xunlei-web-backend"
+version = "0.1.0"
+description = "FastAPI RESTful backend wrapping the reverse-engineered Xunlei Pan API"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "cryptography>=44.0.0",
+    "fastapi>=0.116.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.10.0",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.16.1",
+    "pytest>=8.4.1",
+    "ruff>=0.12.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+# Single stat()/exists() calls on local paths are cheap; directory scans and file I/O
+# still go through asyncio.to_thread.
+ignore = ["ASYNC240"]
+allowed-confusables = ["，", "：", "（", "）"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["app", "tests"]

@@ -1,0 +1,13 @@
+{
+  "name": "迅雷云盘",
+  "short_name": "迅雷云盘",
+  "description": "迅雷云盘、云添加与本机传输管理",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#e7ebf1",
+  "theme_color": "#e7ebf1",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
