@@ -112,6 +112,7 @@ class LaunchSpec:
                 "DriveListen": f"127.0.0.1:{self.control_port}",
                 "DrivePublicPort": str(self.public_port),
                 "LauncherAddress": f"http://127.0.0.1:{self.launcher_port}",
+                "DriveLogLevel": "debug",
             }
         )
         return env
