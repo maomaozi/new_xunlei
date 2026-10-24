@@ -5,7 +5,7 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { engineApi, errorMessage, type EngineStatus } from '../lib/api'
 import EngineLoginModal from './EngineLoginModal'
-import { Card, PillButton } from './ui'
+import { Card, IconTile, PillButton } from './ui'
 
 /** Explains why the engine cannot download yet and offers the fix (start / login / settings). */
 export default function EngineBanner({ status }: { status: EngineStatus | undefined }) {
@@ -76,15 +76,13 @@ export default function EngineBanner({ status }: { status: EngineStatus | undefi
   } else return null
 
   return (
-    <Card className="mb-5 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-      <div className="neu-inset flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-warning">
-        <AlertTriangle size={20} />
-      </div>
+    <Card glass className="mb-4 flex flex-wrap items-center gap-3 !rounded-[22px] p-3.5 sm:flex-nowrap">
+      <IconTile icon={AlertTriangle} tone="warning" size={42} />
       <div className="min-w-0 flex-1">
         <div className="text-[14px] font-semibold text-ink">{title}</div>
         {detail && <div className="mt-0.5 text-[12px] leading-relaxed text-ink-3">{detail}</div>}
       </div>
-      {action}
+      {action && <div className="w-full sm:w-auto [&>button]:w-full [&>button]:justify-center">{action}</div>}
       <EngineLoginModal open={login} onClose={() => setLogin(false)} />
     </Card>
   )

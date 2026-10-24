@@ -95,7 +95,7 @@ export default function FileDetailModal({
           )}
 
           {!folder && (
-            <div className="mb-5 flex flex-wrap gap-2.5">
+            <div className="mb-5 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap [&>button]:justify-center">
               {media && !playing && (
                 <PillButton primary icon={Play} onClick={() => setPlaying(true)}>
                   在线播放
@@ -125,7 +125,7 @@ export default function FileDetailModal({
             </div>
           )}
           {folder && (
-            <div className="mb-5 flex flex-wrap gap-2.5">
+            <div className="mb-5 grid grid-cols-1 gap-2.5 sm:flex sm:flex-wrap [&>button]:justify-center">
               <PillButton primary icon={HardDriveDownload} onClick={() => onDownloadToHost(info)}>
                 整个文件夹下载到服务器
               </PillButton>
@@ -137,7 +137,7 @@ export default function FileDetailModal({
 
           {link.error && !folder && <div className="mb-3 text-[13px] text-warning">{errorMessage(link.error)}</div>}
 
-          <div className="neu-inset divide-y divide-line rounded-3xl px-4 py-1">
+          <div className="divide-y divide-line rounded-[20px] bg-black/[0.03] px-4 py-1 dark:bg-white/[0.035]">
             {playing && <Row label="名称">{info.name}</Row>}
             <Row label="类型">{folder ? '文件夹' : info.mime_type || info.file_extension || '--'}</Row>
             <Row label="创建时间">{formatTime(info.created_time)}</Row>

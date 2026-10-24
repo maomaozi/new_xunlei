@@ -1,26 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { App, Checkbox, Segmented } from 'antd'
-import {
-  ArrowDown,
-  ArrowDownUp,
-  ArrowUp,
-  Brush,
-  CheckCircle2,
-  CircleAlert,
-  Pause,
-  Play,
-  Download,
-  RotateCw,
-  Trash2,
-  X,
-  Zap,
-} from 'lucide-react'
+import { App, Checkbox } from 'antd'
+import { ArrowDown, ArrowDownUp, ArrowUp, Brush, CheckCircle2, CircleAlert, Download, MoreHorizontal, Pause, Play, RotateCw, Trash2, X, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import BottomSheet, { SheetAction, SheetGroup } from '../components/BottomSheet'
+import HeroStats from '../components/HeroStats'
 import PageHeader from '../components/PageHeader'
 import { cx } from '../lib/cx'
-import { Badge, Card, EmptyState, IconButton, ListSkeleton, PillButton, ProgressBar, Stat } from '../components/ui'
+import { Badge, Card, Chips, EmptyState, IconButton, IconTile, ListSkeleton, PillButton, ProgressBar, type Tone } from '../components/ui'
 import { useBrowserUploads } from '../hooks/useBrowserUploads'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { useTransfers } from '../hooks/useTransfers'
 import { errorMessage, transfersApi, type TransferItem } from '../lib/api'
 import { formatBytes, formatEta, formatSpeed, formatTime, percent } from '../lib/format'
@@ -28,6 +17,14 @@ import { formatBytes, formatEta, formatSpeed, formatTime, percent } from '../lib
 type Filter = 'all' | 'download' | 'upload' | 'active' | 'finished'
 
 type Action = 'pause' | 'resume' | 'cancel' | 'delete'
+
+const FILTERS: { label: string; value: Filter }[] = [
+  { label: '全部', value: 'all' },
+  { label: '下载', value: 'download' },
+  { label: '上传', value: 'upload' },
+  { label: '进行中', value: 'active' },
+  { label: '已结束', value: 'finished' },
+]
 
 const PHASES: Record<string, string> = {
   resolving: '准备中',
@@ -41,7 +38,7 @@ const PHASES: Record<string, string> = {
   done: '完成',
 }
 
-const STATUS: Record<TransferItem['status'], { label: string; tone: 'accent' | 'success' | 'danger' | 'muted' | 'warning' }> = {
+const STATUS: Record<TransferItem['status'], { label: string; tone: Tone }> = {
   queued: { label: '排队中', tone: 'muted' },
   running: { label: '进行中', tone: 'accent' },
   paused: { label: '已暂停', tone: 'warning' },
@@ -50,39 +47,41 @@ const STATUS: Record<TransferItem['status'], { label: string; tone: 'accent' | '
   canceled: { label: '已取消', tone: 'muted' },
 }
 
-function RowActions({ item, onAction }: { item: TransferItem; onAction: (action: Action) => unknown }) {
-  return (
-    <div className="flex shrink-0 gap-2">
-      {(item.status === 'running' || item.status === 'queued') && <IconButton icon={Pause} label="暂停" size="sm" onClick={() => onAction('pause')} />}
-      {item.status === 'paused' && <IconButton icon={Play} label="继续" size="sm" tone="accent" onClick={() => onAction('resume')} />}
-      {(item.status === 'failed' || item.status === 'canceled') && <IconButton icon={RotateCw} label="重试" size="sm" tone="accent" onClick={() => onAction('resume')} />}
-      {(item.status === 'running' || item.status === 'queued' || item.status === 'paused') && (
-        <IconButton icon={X} label="取消" size="sm" onClick={() => onAction('cancel')} className="hidden md:inline-flex" />
-      )}
-      <IconButton icon={Trash2} label="删除记录" size="sm" tone="danger" onClick={() => onAction('delete')} />
-    </div>
-  )
+/** Actions available for an item in its current state, in display order. */
+function itemActions(item: TransferItem): { action: Action; label: string; icon: typeof Pause; danger?: boolean }[] {
+  const live = item.status === 'running' || item.status === 'queued'
+  return [
+    ...(live ? [{ action: 'pause' as const, label: '暂停', icon: Pause }] : []),
+    ...(item.status === 'paused' ? [{ action: 'resume' as const, label: '继续', icon: Play }] : []),
+    ...(item.status === 'failed' || item.status === 'canceled' ? [{ action: 'resume' as const, label: '重试', icon: RotateCw }] : []),
+    ...(live || item.status === 'paused' ? [{ action: 'cancel' as const, label: '取消', icon: X }] : []),
+    { action: 'delete' as const, label: '删除记录', icon: Trash2, danger: true },
+  ]
 }
 
-function TransferRow({ item, onAction }: { item: TransferItem; onAction: (action: Action) => unknown }) {
+function itemIcon(item: TransferItem) {
+  if (item.status === 'completed') return CheckCircle2
+  if (item.status === 'failed') return CircleAlert
+  return item.kind === 'download' ? ArrowDown : ArrowUp
+}
+
+function TransferRow({ item, touch, onAction, onMenu }: { item: TransferItem; touch: boolean; onAction: (action: Action) => unknown; onMenu: () => void }) {
   const status = STATUS[item.status]
   const value = item.status === 'completed' ? 100 : percent(item.done_bytes, item.size)
   const active = item.status === 'running'
-  const Icon = item.kind === 'download' ? ArrowDown : ArrowUp
   const phase = PHASES[item.phase] ?? item.phase
+  const actions = itemActions(item)
+  const primary = actions[0].action === 'delete' ? null : actions[0]
   return (
-    <div className="flex items-start gap-3 rounded-[22px] p-3.5 md:items-center md:gap-4 md:p-4">
-      <div
-        className={cx(
-          'neu-raised-xs flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl',
-          item.status === 'failed' ? 'text-danger' : item.status === 'completed' ? 'text-success' : 'text-accent',
-        )}
-      >
-        {item.status === 'completed' ? <CheckCircle2 size={20} /> : item.status === 'failed' ? <CircleAlert size={20} /> : <Icon size={20} />}
-      </div>
+    <div
+      role={touch ? 'button' : undefined}
+      onClick={touch ? onMenu : undefined}
+      className={cx('flex items-center gap-3 rounded-[20px] px-3 py-3 md:gap-4 md:px-4', touch && 'tap cursor-pointer')}
+    >
+      <IconTile icon={itemIcon(item)} tone={item.status === 'failed' ? 'danger' : item.status === 'completed' ? 'success' : item.kind === 'upload' ? 'violet' : 'accent'} size={44} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-[14px] font-medium text-ink" title={item.local_path}>
+          <span className="truncate text-[14.5px] font-medium text-ink" title={item.local_path}>
             {item.name}
           </span>
           {item.instant && (
@@ -96,27 +95,43 @@ function TransferRow({ item, onAction }: { item: TransferItem; onAction: (action
           <span>
             {formatBytes(item.status === 'completed' ? item.size : item.done_bytes)} / {formatBytes(item.size)}
           </span>
-          {active && item.speed > 0 && <span className="text-accent">{formatSpeed(item.speed)}</span>}
+          {active && item.speed > 0 && <span className="font-medium text-accent">{formatSpeed(item.speed)}</span>}
           {active && item.speed > 0 && <span>剩余 {formatEta(item.size - item.done_bytes, item.speed)}</span>}
           {active && item.connections > 1 && <span>{item.connections} 线程</span>}
           {item.group_name && <span className="truncate">· {item.group_name}</span>}
           {item.finished_at && !active && <span>{formatTime(item.finished_at)}</span>}
         </div>
-        {item.error && <div className="mt-1 text-[12px] break-all text-danger">{item.error}</div>}
+        {item.error && <div className="mt-1 line-clamp-2 text-[12px] break-all text-danger">{item.error}</div>}
         {item.status !== 'completed' && (
-          <div className="mt-2.5 flex items-center gap-3">
-            <ProgressBar
-              value={value}
-              animated={active}
-              tone={item.status === 'failed' ? 'danger' : item.status === 'paused' ? 'warning' : 'accent'}
-              className="flex-1"
-            />
-            <span className="w-12 text-right text-xs text-ink-2 tabular-nums">{value.toFixed(1)}%</span>
+          <div className="mt-2 flex items-center gap-2.5">
+            <ProgressBar value={value} animated={active} tone={item.status === 'failed' ? 'danger' : item.status === 'paused' ? 'warning' : 'accent'} className="flex-1" />
+            <span className="w-11 text-right text-[11px] font-medium text-ink-2 tabular-nums">{value.toFixed(1)}%</span>
           </div>
         )}
-        <div className="mt-1 hidden truncate text-[11px] text-ink-3 md:block">{item.local_path}</div>
+        {!touch && <div className="mt-1 truncate text-[11px] text-ink-3">{item.local_path}</div>}
       </div>
-      <RowActions item={item} onAction={onAction} />
+      {touch ? (
+        primary && (
+          <IconButton
+            icon={primary.icon}
+            label={primary.label}
+            size="sm"
+            showTooltip={false}
+            tone={primary.action === 'pause' ? 'default' : 'accent'}
+            className="!rounded-full"
+            onClick={(event) => {
+              event.stopPropagation()
+              return onAction(primary.action)
+            }}
+          />
+        )
+      ) : (
+        <div className="flex shrink-0 gap-2">
+          {actions.map((a) => (
+            <IconButton key={a.label} icon={a.icon} label={a.label} size="sm" tone={a.danger ? 'danger' : a.action === 'pause' || a.action === 'cancel' ? 'default' : 'accent'} onClick={() => onAction(a.action)} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -124,9 +139,12 @@ function TransferRow({ item, onAction }: { item: TransferItem; onAction: (action
 export default function TransfersPage() {
   const { message, modal } = App.useApp()
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
   const { data, isLoading } = useTransfers()
   const browserUploads = useBrowserUploads()
   const [filter, setFilter] = useState<Filter>('all')
+  const [sheetItem, setSheetItem] = useState<TransferItem | null>(null)
+  const [bulkSheet, setBulkSheet] = useState(false)
   const navigate = useNavigate()
   const summary = data?.summary
 
@@ -152,26 +170,26 @@ export default function TransfersPage() {
     let deleteFiles = false
     // The API call runs inside onOk so the dialog's button shows progress and blocks repeats.
     modal.confirm({
-          title: '删除传输记录？',
-          content:
-            item.kind !== 'upload' && item.status === 'completed' ? (
-              <div className="pt-2">
-                <Checkbox onChange={(e) => (deleteFiles = e.target.checked)}>同时删除已下载到服务器的文件</Checkbox>
-              </div>
-            ) : (
-              '未完成的临时文件会一并清理。'
-            ),
-          okText: '删除',
-          okButtonProps: { danger: true },
-          onOk: async () => {
-            try {
-              await transfersApi.remove([item.id], deleteFiles)
-              refresh()
-            } catch (error) {
-              message.error(errorMessage(error))
-            }
-          },
-        })
+      title: '删除传输记录？',
+      content:
+        item.kind !== 'upload' && item.status === 'completed' ? (
+          <div className="pt-2">
+            <Checkbox onChange={(e) => (deleteFiles = e.target.checked)}>同时删除已下载到服务器的文件</Checkbox>
+          </div>
+        ) : (
+          '未完成的临时文件会一并清理。'
+        ),
+      okText: '删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await transfersApi.remove([item.id], deleteFiles)
+          refresh()
+        } catch (error) {
+          message.error(errorMessage(error))
+        }
+      },
+    })
   }
 
   const act = async (item: TransferItem, action: Action) => {
@@ -194,62 +212,128 @@ export default function TransfersPage() {
   }
 
   const uploadingInBrowser = browserUploads.filter((u) => u.status === 'uploading' || u.status === 'queued').length
+  const bulkActions = [
+    { key: 'pause-all' as const, icon: Pause, label: '全部暂停' },
+    { key: 'resume-all' as const, icon: Play, label: '全部继续' },
+    { key: 'clear-finished' as const, icon: Brush, label: '清除已完成' },
+  ]
 
   return (
     <div>
       <PageHeader
         title="传输"
-        subtitle="上传队列与内置 HTTP 下载器（多线程分段、断点续传）"
+        subtitle={isMobile ? '上传队列与内置 HTTP 下载器' : '上传队列与内置 HTTP 下载器（多线程分段、断点续传）'}
         actions={
-          <PillButton icon={Download} onClick={() => navigate('/downloads')}>
-            迅雷引擎下载
-          </PillButton>
+          isMobile ? (
+            <IconButton icon={MoreHorizontal} label="批量操作" size="sm" onClick={() => setBulkSheet(true)} />
+          ) : (
+            <PillButton icon={Download} onClick={() => navigate('/downloads')}>
+              迅雷引擎下载
+            </PillButton>
+          )
         }
       />
-      <div className="stagger mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={ArrowDown} label="下载速度" value={formatSpeed(summary?.download_speed ?? 0)} />
-        <Stat icon={ArrowUp} label="上传速度" value={formatSpeed(summary?.upload_speed ?? 0)} tone="success" />
-        <Stat icon={ArrowDownUp} label="进行中 / 排队" value={`${summary?.running ?? 0} / ${summary?.queued ?? 0}`} hint={uploadingInBrowser ? `浏览器正在传输 ${uploadingInBrowser} 项` : undefined} tone="warning" />
-        <Stat icon={CircleAlert} label="失败" value={summary?.failed ?? 0} hint={`已完成 ${summary?.completed ?? 0}`} tone="danger" />
-      </div>
-      <Card className="p-3 md:p-4">
-        <div className="flex flex-wrap items-center gap-3 px-2 pt-1 pb-3">
-          <Segmented
-            value={filter}
-            onChange={(v) => setFilter(v as Filter)}
-            options={[
-              { label: '全部', value: 'all' },
-              { label: '下载', value: 'download' },
-              { label: '上传', value: 'upload' },
-              { label: '进行中', value: 'active' },
-              { label: '已结束', value: 'finished' },
-            ]}
-          />
-          <div className="flex-1" />
+      <HeroStats
+        className="mb-4"
+        icon={ArrowDownUp}
+        label="下载速度"
+        value={formatSpeed(summary?.download_speed ?? 0)}
+        hint={`上传 ${formatSpeed(summary?.upload_speed ?? 0)}${uploadingInBrowser ? ` · 浏览器正在传输 ${uploadingInBrowser} 项` : ''}`}
+        stats={[
+          { label: '进行中', value: summary?.running ?? 0, active: filter === 'active', onClick: () => setFilter('active') },
+          { label: '排队', value: summary?.queued ?? 0 },
+          { label: '失败', value: summary?.failed ?? 0 },
+          { label: '已完成', value: summary?.completed ?? 0, active: filter === 'finished', onClick: () => setFilter('finished') },
+        ]}
+      />
+      <div className="mb-3 flex items-center gap-3">
+        <Chips value={filter} onChange={setFilter} options={FILTERS} className={cx('min-w-0 flex-1 py-1', isMobile && '-mx-4 px-4')} />
+        {!isMobile && (
           <div className="flex gap-2">
-            <PillButton icon={Pause} onClick={() => bulk('pause-all')} className="!px-3">
-              <span className="hidden sm:inline">全部暂停</span>
-            </PillButton>
-            <PillButton icon={Play} onClick={() => bulk('resume-all')} className="!px-3">
-              <span className="hidden sm:inline">全部继续</span>
-            </PillButton>
-            <PillButton icon={Brush} onClick={() => bulk('clear-finished')} className="!px-3">
-              <span className="hidden sm:inline">清除已完成</span>
-            </PillButton>
+            {bulkActions.map((b) => (
+              <PillButton key={b.key} icon={b.icon} onClick={() => bulk(b.key)} className="!px-3 !py-2">
+                {b.label}
+              </PillButton>
+            ))}
           </div>
-        </div>
+        )}
+      </div>
+      <Card className="!rounded-[26px] p-1.5 md:p-3">
         {isLoading ? (
           <ListSkeleton rows={5} />
         ) : items.length === 0 ? (
           <EmptyState icon={ArrowDownUp} title="没有传输任务" description="链接与种子请在「下载」页由迅雷引擎下载；云盘文件可在设置中选择使用内置 HTTP 下载器" />
         ) : (
-          <div className="space-y-1">
+          <div className="divide-y divide-line/70">
             {items.map((item) => (
-              <TransferRow key={item.id} item={item} onAction={(action) => act(item, action)} />
+              <TransferRow key={item.id} item={item} touch={isMobile} onAction={(action) => act(item, action)} onMenu={() => setSheetItem(item)} />
             ))}
           </div>
         )}
       </Card>
+
+      <BottomSheet open={bulkSheet} onClose={() => setBulkSheet(false)} title="批量操作">
+        <SheetGroup>
+          {bulkActions.map((b) => (
+            <SheetAction
+              key={b.key}
+              icon={<b.icon size={18} />}
+              label={b.label}
+              onClick={() => {
+                setBulkSheet(false)
+                void bulk(b.key)
+              }}
+            />
+          ))}
+        </SheetGroup>
+        <SheetGroup>
+          <SheetAction
+            icon={<Download size={18} />}
+            label="前往迅雷引擎下载"
+            onClick={() => {
+              setBulkSheet(false)
+              navigate('/downloads')
+            }}
+          />
+        </SheetGroup>
+      </BottomSheet>
+      <BottomSheet
+        open={Boolean(sheetItem)}
+        onClose={() => setSheetItem(null)}
+        header={
+          sheetItem && (
+            <div className="mb-4 px-1">
+              <div className="line-clamp-2 text-[15px] font-semibold break-all text-ink">{sheetItem.name}</div>
+              <div className="mt-1 text-[12px] break-all text-ink-3">{sheetItem.local_path}</div>
+            </div>
+          )
+        }
+      >
+        {sheetItem &&
+          (() => {
+            const actions = itemActions(sheetItem)
+            const run = (action: Action) => {
+              setSheetItem(null)
+              void act(sheetItem, action)
+            }
+            return (
+              <>
+                {actions.length > 1 && (
+                  <SheetGroup>
+                    {actions
+                      .filter((a) => !a.danger)
+                      .map((a) => (
+                        <SheetAction key={a.label} icon={<a.icon size={18} />} label={a.label} onClick={() => run(a.action)} />
+                      ))}
+                  </SheetGroup>
+                )}
+                <SheetGroup>
+                  <SheetAction icon={<Trash2 size={18} />} label="删除记录" danger onClick={() => run('delete')} />
+                </SheetGroup>
+              </>
+            )
+          })()}
+      </BottomSheet>
     </div>
   )
 }

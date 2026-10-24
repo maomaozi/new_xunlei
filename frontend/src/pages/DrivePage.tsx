@@ -2,6 +2,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { App, Checkbox, Dropdown, Input, Modal, type MenuProps } from 'antd'
 import {
   ArrowDownAZ,
+  ArrowUpDown,
+  CheckCheck,
   ChevronRight,
   ClipboardCopy,
   Copy,
@@ -33,8 +35,9 @@ import {
 import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Virtuoso, VirtuosoGrid } from 'react-virtuoso'
-import BottomSheet, { SheetAction } from '../components/BottomSheet'
+import BottomSheet, { SheetAction, SheetGroup } from '../components/BottomSheet'
 import FileDetailModal from '../components/FileDetailModal'
+import FileIcon from '../components/FileIcon'
 import { FileRow, FileTile, type ItemHandlers } from '../components/FileItems'
 import FolderPickerModal from '../components/FolderPickerModal'
 import EngineFolderSelect from '../components/EngineFolderSelect'
@@ -44,12 +47,12 @@ import OfflineCreatePanel from '../components/OfflineCreatePanel'
 import PageHeader from '../components/PageHeader'
 import ShareModal from '../components/ShareModal'
 import { cx } from '../lib/cx'
-import { EmptyState, IconButton, ListSkeleton, PillButton } from '../components/ui'
+import { ActionBar, Chips, EmptyState, IconButton, ListSkeleton, PillButton, SelectionControls } from '../components/ui'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { downloadsApi, errorMessage, filesApi, isAuthError, transfersApi, type Category, type DriveFile } from '../lib/api'
 import { copyText } from '../lib/clipboard'
 import { isFolder, playable } from '../lib/files'
-import { formatBytes } from '../lib/format'
+import { formatBytes, formatTime } from '../lib/format'
 import { useAppSettings } from '../lib/settingsContext'
 import { uploadStore } from '../lib/uploads'
 
@@ -100,6 +103,7 @@ export default function DrivePage() {
   const [dialog, setDialog] = useState<Dialog>(null)
   const [sheetFile, setSheetFile] = useState<DriveFile | null>(null)
   const [addSheet, setAddSheet] = useState(false)
+  const [viewSheet, setViewSheet] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const [downloadDir, setDownloadDir] = useState('')
   const [engineFolder, setEngineFolder] = useState('')
@@ -407,46 +411,68 @@ export default function DrivePage() {
   const compact = settings?.ui.density === 'compact'
   const loadMore = () => listing.hasNextPage && !listing.isFetchingNextPage && void listing.fetchNextPage()
 
-  const batchBar = selecting && (
-    <div
-      className={cx(
-        'neu-raised z-40 flex items-center gap-2 rounded-[22px] p-2',
-        isMobile ? 'fixed inset-x-3 bottom-[84px] justify-around' : 'sticky top-4 mb-4',
-      )}
-    >
-      {!isMobile && (
-        <div className="flex items-center gap-2 pr-2 pl-2 text-[13px] text-ink-2">
-          <IconButton icon={X} label="取消选择" size="sm" onClick={clearSelection} />
-          已选 <b className="text-accent">{selected.size}</b> 项
-          <button type="button" className="cursor-pointer border-0 bg-transparent text-[13px] text-accent" onClick={() => setSelected(new Set(files.map((f) => f.id)))}>
-            全选
+  const allSelected = selecting && selected.size === files.length
+  const selectAll = () => (allSelected ? clearSelection() : setSelected(new Set(files.map((f) => f.id))))
+  const batchActions = [
+    { key: 'download', icon: HardDriveDownload, label: '下载到本机', short: '下载', onClick: () => askDownload(selectedFiles) },
+    { key: 'share', icon: Share2, label: '分享', short: '分享', onClick: () => setDialog({ type: 'share', ids: [...selected], title: selectedFiles[0]?.name ?? '分享' }) },
+    { key: 'move', icon: FolderInput, label: '移动', short: '移动', onClick: () => setDialog({ type: 'move', ids: [...selected] }) },
+    { key: 'copy', icon: Copy, label: '复制', short: '复制', onClick: () => setDialog({ type: 'copy', ids: [...selected] }) },
+    { key: 'star', icon: Star, label: '收藏/取消', short: '收藏', onClick: () => starToggle(selectedFiles) },
+    { key: 'delete', icon: Trash2, label: '删除', short: '删除', danger: true, onClick: () => remove(selectedFiles) },
+  ]
+
+  const batchBar =
+    selecting &&
+    (isMobile ? (
+      <ActionBar actions={batchActions.map((a) => ({ ...a, label: a.short }))} />
+    ) : (
+      <div className="glass-card sticky top-4 z-40 mb-4 flex items-center gap-2 rounded-[22px] p-2">
+        <div className="flex items-center gap-2 pr-2 pl-1 text-[13px] text-ink-2">
+          <IconButton icon={X} label="取消选择" size="sm" variant="ghost" onClick={clearSelection} />
+          已选 <b className="text-accent">{selected.size}</b> 项 · {formatBytes(selectedFiles.reduce((sum, f) => sum + f.size, 0))}
+          <button type="button" className="cursor-pointer border-0 bg-transparent text-[13px] text-accent" onClick={selectAll}>
+            {allSelected ? '全不选' : '全选'}
           </button>
         </div>
-      )}
-      {!isMobile && <div className="flex-1" />}
-      <IconButton icon={HardDriveDownload} label="下载到本机" size="sm" onClick={() => askDownload(selectedFiles)} />
-      <IconButton icon={Share2} label="分享" size="sm" onClick={() => setDialog({ type: 'share', ids: [...selected], title: selectedFiles[0]?.name ?? '分享' })} />
-      <IconButton icon={FolderInput} label="移动" size="sm" onClick={() => setDialog({ type: 'move', ids: [...selected] })} />
-      <IconButton icon={Copy} label="复制" size="sm" onClick={() => setDialog({ type: 'copy', ids: [...selected] })} />
-      <IconButton icon={Star} label="收藏/取消" size="sm" onClick={() => starToggle(selectedFiles)} />
-      <IconButton icon={Trash2} label="删除" size="sm" tone="danger" onClick={() => remove(selectedFiles)} />
-      {isMobile && <IconButton icon={X} label="取消" size="sm" onClick={clearSelection} />}
-    </div>
-  )
+        <div className="flex-1" />
+        {batchActions.map((action) => (
+          <IconButton key={action.key} icon={action.icon} label={action.label} size="sm" tone={action.danger ? 'danger' : 'default'} onClick={action.onClick} />
+        ))}
+      </div>
+    ))
+
+  const parentCrumb = crumbs.data && crumbs.data.length > 1 ? crumbs.data[crumbs.data.length - 2] : null
+  const mobileBack = view === 'all' && folderId ? () => navigate(parentCrumb ? `/drive/${parentCrumb.id}` : '/drive') : false
+
+  const menuSheetGroups = (items: MenuProps['items']) => {
+    const groups: NonNullable<MenuProps['items']>[] = [[]]
+    for (const item of items ?? []) {
+      if (item && 'type' in item && item.type === 'divider') groups.push([])
+      else groups[groups.length - 1].push(item)
+    }
+    return groups.filter((group) => group.length)
+  }
 
   return (
     <div>
       <PageHeader
-        title={currentName}
+        title={isMobile && selecting ? `已选 ${selected.size} 项` : currentName}
+        back={isMobile && selecting ? false : mobileBack}
         subtitle={
-          listing.data
-            ? `${files.length}${listing.hasNextPage ? '+' : ''} 项${filter ? ' · 已筛选' : ''}`
-            : undefined
+          isMobile && selecting
+            ? formatBytes(selectedFiles.reduce((sum, f) => sum + f.size, 0))
+            : listing.data
+              ? `${files.length}${listing.hasNextPage ? '+' : ''} 项${filter ? ' · 已筛选' : ''}`
+              : undefined
         }
         actions={
-          isMobile ? (
+          isMobile && selecting ? (
+            <SelectionControls allSelected={allSelected} onAll={selectAll} onDone={clearSelection} />
+          ) : isMobile ? (
             <>
               <IconButton icon={Search} label="筛选" size="sm" active={searchOpen} onClick={() => setSearchOpen(!searchOpen)} />
+              <IconButton icon={ArrowUpDown} label="排序与视图" size="sm" onClick={() => setViewSheet(true)} />
               <IconButton icon={Plus} label="新建" size="sm" tone="accent" onClick={() => setAddSheet(true)} />
             </>
           ) : (
@@ -462,7 +488,7 @@ export default function DrivePage() {
               <IconButton icon={RefreshCw} label="刷新" onClick={() => refresh()} spinning={listing.isFetching} />
               <Dropdown menu={sortMenu} trigger={['click']}>
                 <span>
-                  <IconButton icon={ArrowDownAZ} label="排序" />
+                  <IconButton icon={ArrowDownAZ} label="排序" showTooltip={false} />
                 </span>
               </Dropdown>
               <IconButton
@@ -481,7 +507,7 @@ export default function DrivePage() {
           )
         }
       >
-        {isMobile && searchOpen && (
+        {isMobile && searchOpen && !selecting && (
           <Input
             autoFocus
             allowClear
@@ -489,31 +515,25 @@ export default function DrivePage() {
             onChange={(e) => setFilter(e.target.value)}
             placeholder="筛选当前列表"
             prefix={<Search size={15} className="text-ink-3" />}
-            className="mt-3 !rounded-2xl"
+            className="mb-3 !rounded-2xl"
           />
         )}
-        <div className="scrollbar-none -mx-4 mt-1 flex gap-2.5 overflow-x-auto px-4 py-3 md:mt-5">
-          {VIEWS.map((item) => (
-            <PillButton
-              key={item.key}
-              active={view === item.key}
-              className="!px-3.5 !py-2 !text-[13px]"
-              onClick={() => {
-                clearSelection()
-                setSearchParams(item.key === 'all' ? {} : { view: item.key })
-                if (item.key !== 'all' && folderId) navigate(`/drive?view=${item.key}`)
-              }}
-            >
-              {item.label}
-            </PillButton>
-          ))}
-        </div>
-          {view === 'all' && (
-            <div className="scrollbar-none -mx-4 -mt-1 flex items-center gap-1 overflow-x-auto px-4 py-2 text-[13px]">
+        <Chips
+          value={view}
+          onChange={(key) => {
+            clearSelection()
+            setSearchParams(key === 'all' ? {} : { view: key })
+            if (key !== 'all' && folderId) navigate(`/drive?view=${key}`)
+          }}
+          options={VIEWS.map((item) => ({ value: item.key, label: item.label }))}
+          className="-mx-4 px-4 py-1 md:mx-0 md:px-0"
+        />
+          {view === 'all' && (folderId || !isMobile) && (
+            <div className="scrollbar-none -mx-4 mt-2 flex items-center gap-1 overflow-x-auto px-4 py-1 text-[13px] md:mx-0 md:px-0">
               <button
                 type="button"
                 onClick={() => navigate('/drive')}
-                className={cx('neu-press flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border-0 px-3 py-1.5', !folderId ? 'text-accent' : 'text-ink-2')}
+                className={cx('tap flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border-0 px-2.5 py-1.5', !folderId ? 'tint text-accent' : 'bg-transparent text-ink-2')}
               >
                 <Home size={14} /> 云盘
               </button>
@@ -524,8 +544,8 @@ export default function DrivePage() {
                     type="button"
                     onClick={() => navigate(`/drive/${crumb.id}`)}
                     className={cx(
-                      'max-w-48 cursor-pointer truncate rounded-xl border-0 bg-transparent px-2 py-1.5',
-                      index === (crumbs.data?.length ?? 0) - 1 ? 'font-semibold text-ink' : 'text-ink-2 hover:text-ink',
+                      'max-w-48 cursor-pointer truncate rounded-xl border-0 px-2.5 py-1.5',
+                      index === (crumbs.data?.length ?? 0) - 1 ? 'tint font-semibold text-accent' : 'bg-transparent text-ink-2 hover:text-ink',
                     )}
                   >
                     {crumb.name}
@@ -565,13 +585,13 @@ export default function DrivePage() {
           useWindowScroll
           data={files}
           endReached={loadMore}
-          listClassName="grid grid-cols-2 gap-4 xs:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 pb-4"
+          listClassName="grid grid-cols-2 gap-3 md:gap-4 xs:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 pb-4"
           itemContent={(_, file) => (
             <FileTile file={file} selected={selected.has(file.id)} selecting={selecting} thumbnails={thumbnails} handlers={handlers} />
           )}
         />
       ) : (
-        <div className="neu-raised rounded-[28px] py-2">
+        <div className="neu-raised rounded-[26px] py-1.5 md:py-2">
           {!isMobile && (
             <div className="flex items-center gap-4 px-7 pt-2 pb-3 text-[12px] text-ink-3">
               <Checkbox
@@ -635,41 +655,103 @@ export default function DrivePage() {
       />
 
       {/* mobile sheets */}
-      <BottomSheet open={Boolean(sheetFile)} onClose={() => setSheetFile(null)} title={sheetFile?.name}>
-        <div className="space-y-2.5">
-          {sheetFile &&
-            (menuFor(sheetFile) ?? []).map((item, index) =>
+      <BottomSheet
+        open={Boolean(sheetFile)}
+        onClose={() => setSheetFile(null)}
+        header={
+          sheetFile && (
+            <div className="mb-4 flex items-center gap-3 px-1">
+              <FileIcon file={sheetFile} size={48} thumbnails={thumbnails} />
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 text-[15px] font-semibold break-all text-ink">{sheetFile.name}</div>
+                <div className="mt-0.5 text-[12px] text-ink-3">
+                  {isFolder(sheetFile) ? '文件夹' : formatBytes(sheetFile.size)} · {formatTime(sheetFile.modified_time)}
+                </div>
+              </div>
+            </div>
+          )
+        }
+      >
+        {sheetFile && (
+          <>
+            {menuSheetGroups(menuFor(sheetFile)).map((group, groupIndex) => (
+              <SheetGroup key={groupIndex}>
+                {group.map((item, index) =>
+                  item && 'onClick' in item && item.onClick ? (
+                    <SheetAction
+                      key={String(item.key ?? index)}
+                      icon={'icon' in item ? item.icon : null}
+                      label={String('label' in item ? item.label : '')}
+                      danger={'danger' in item ? Boolean(item.danger) : false}
+                      onClick={() => {
+                        setSheetFile(null)
+                        ;(item.onClick as () => void)()
+                      }}
+                    />
+                  ) : null,
+                )}
+              </SheetGroup>
+            ))}
+            <SheetGroup>
+              <SheetAction
+                icon={<CheckCheck size={15} />}
+                label="多选"
+                onClick={() => {
+                  const file = sheetFile
+                  setSheetFile(null)
+                  toggle(file, null)
+                }}
+              />
+            </SheetGroup>
+          </>
+        )}
+      </BottomSheet>
+      <BottomSheet open={addSheet} onClose={() => setAddSheet(false)} title={`新建 / 上传到「${currentFolder.name}」`}>
+        {menuSheetGroups(addMenu).map((group, groupIndex) => (
+          <SheetGroup key={groupIndex}>
+            {group.map((item, index) =>
               item && 'onClick' in item && item.onClick ? (
                 <SheetAction
                   key={String(item.key ?? index)}
                   icon={'icon' in item ? item.icon : null}
                   label={String('label' in item ? item.label : '')}
-                  danger={'danger' in item ? Boolean(item.danger) : false}
                   onClick={() => {
-                    setSheetFile(null)
+                    setAddSheet(false)
                     ;(item.onClick as () => void)()
                   }}
                 />
               ) : null,
             )}
-        </div>
+          </SheetGroup>
+        ))}
       </BottomSheet>
-      <BottomSheet open={addSheet} onClose={() => setAddSheet(false)} title="新建 / 上传">
-        <div className="space-y-2.5">
-          {(addMenu ?? []).map((item, index) =>
-            item && 'onClick' in item && item.onClick ? (
-              <SheetAction
-                key={String(item.key ?? index)}
-                icon={'icon' in item ? item.icon : null}
-                label={String('label' in item ? item.label : '')}
-                onClick={() => {
-                  setAddSheet(false)
-                  ;(item.onClick as () => void)()
-                }}
-              />
-            ) : null,
-          )}
-        </div>
+      <BottomSheet open={viewSheet} onClose={() => setViewSheet(false)} title="排序与视图">
+        <div className="mb-2 px-3 text-[12px] text-ink-3">排序方式</div>
+        <SheetGroup>
+          {SORTS.map((sort) => (
+            <SheetAction key={sort.key} label={sort.label} active={(drive?.sort_by ?? 'name') === sort.key} onClick={() => void update('drive', { sort_by: sort.key })} />
+          ))}
+        </SheetGroup>
+        <SheetGroup>
+          <SheetAction label="升序" active={(drive?.sort_order ?? 'asc') === 'asc'} onClick={() => void update('drive', { sort_order: 'asc' })} />
+          <SheetAction label="降序" active={drive?.sort_order === 'desc'} onClick={() => void update('drive', { sort_order: 'desc' })} />
+          <SheetAction label="文件夹优先" active={Boolean(drive?.folders_first)} onClick={() => void update('drive', { folders_first: !drive?.folders_first })} />
+        </SheetGroup>
+        <div className="mb-2 px-3 text-[12px] text-ink-3">视图</div>
+        <SheetGroup>
+          <SheetAction icon={<List size={18} />} label="列表" active={!gridView} onClick={() => void update('drive', { default_view: 'list' })} />
+          <SheetAction icon={<LayoutGrid size={18} />} label="网格" active={gridView} onClick={() => void update('drive', { default_view: 'grid' })} />
+        </SheetGroup>
+        <SheetGroup>
+          <SheetAction
+            icon={<RefreshCw size={18} />}
+            label="刷新列表"
+            onClick={() => {
+              setViewSheet(false)
+              refresh()
+            }}
+          />
+        </SheetGroup>
       </BottomSheet>
 
       {/* dialogs */}
@@ -827,11 +909,7 @@ export default function DrivePage() {
         }}
       />
 
-      {selecting && !isMobile && (
-        <div className="mt-3 text-center text-xs text-ink-3">
-          共 {formatBytes(selectedFiles.reduce((sum, f) => sum + f.size, 0))} · Shift 连选 · Ctrl/⌘ 多选
-        </div>
-      )}
+      {!isMobile && files.length > 0 && <div className="mt-3 text-center text-xs text-ink-3">右键文件打开菜单 · Shift 连选 · Ctrl/⌘ 多选</div>}
     </div>
   )
 }

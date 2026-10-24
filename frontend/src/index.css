@@ -3,12 +3,14 @@
 @import "tailwindcss";
 
 /*
- * Neumorphic design tokens. Surfaces share the page color and get their depth from a
- * light and a dark shadow; the accent color is only used for state (active, progress).
+ * Design tokens. The base language is neumorphism (surfaces share the page color and get
+ * depth from a light and a dark shadow); frosted glass is used for floating chrome (bars,
+ * sheets, menus) and the accent plus a hue-shifted companion color add highlights.
  */
 :root,
 :root[data-theme="light"] {
   --accent: #5b7cfa;
+  --accent-2: #b46cf6;
   --bg: #e7ebf1;
   --bg-soft: #edf0f5;
   --surface: #e7ebf1;
@@ -22,27 +24,49 @@
   --success: #2fb67c;
   --warning: #e9a23b;
   --danger: #e5566b;
-  --overlay: rgba(231, 235, 241, 0.72);
+  --overlay: rgba(236, 240, 246, 0.72);
+  --glass: rgba(246, 248, 252, 0.62);
+  --glass-strong: rgba(246, 248, 252, 0.84);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 10px 30px -12px rgba(70, 84, 120, 0.35);
+  --group: rgba(255, 255, 255, 0.62);
+  --mesh-a: 18%;
+  --mesh-b: 12%;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --bg: #22252b;
-  --bg-soft: #262a31;
+  --bg: #1f2228;
+  --bg-soft: #252930;
   --surface: #22252b;
-  --text: #e5e8ef;
-  --text-2: #a7afbe;
-  --text-3: #757e8f;
-  --line: rgba(255, 255, 255, 0.06);
-  --sh-light: rgba(52, 57, 67, 0.75);
+  --text: #e8ebf2;
+  --text-2: #a9b1c0;
+  --text-3: #767f90;
+  --line: rgba(255, 255, 255, 0.07);
+  --sh-light: rgba(52, 57, 67, 0.7);
   --sh-dark: rgba(10, 11, 14, 0.62);
   --sh-dark-strong: rgba(6, 7, 9, 0.75);
-  --overlay: rgba(34, 37, 43, 0.75);
+  --overlay: rgba(30, 33, 39, 0.74);
+  --glass: rgba(40, 44, 52, 0.58);
+  --glass-strong: rgba(36, 40, 47, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 14px 36px -14px rgba(0, 0, 0, 0.7);
+  --group: rgba(255, 255, 255, 0.05);
+  --mesh-a: 20%;
+  --mesh-b: 14%;
   color-scheme: dark;
+}
+
+/* The companion color follows the configured accent where relative colors are supported. */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --accent-2: oklch(from var(--accent) calc(l + 0.02) c calc(h + 48));
+  }
 }
 
 @theme {
   --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
   --color-page: var(--bg);
   --color-soft: var(--bg-soft);
   --color-ink: var(--text);
@@ -59,13 +83,18 @@
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background: var(--bg);
+  background-color: var(--bg);
+  /* Soft color mesh behind the neumorphic surfaces. */
+  background-image:
+    radial-gradient(60rem 40rem at 105% -10%, color-mix(in srgb, var(--accent) var(--mesh-a), transparent), transparent 60%),
+    radial-gradient(48rem 36rem at -15% 110%, color-mix(in srgb, var(--accent-2) var(--mesh-b), transparent), transparent 60%);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-sans);
   font-synthesis: none;
@@ -157,20 +186,52 @@ body {
 @utility accent-fill {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--accent) 82%, white),
-    var(--accent) 60%,
-    color-mix(in srgb, var(--accent) 80%, black)
+    color-mix(in srgb, var(--accent) 70%, var(--accent-2)),
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 82%, black)
   );
   color: white;
   box-shadow:
-    5px 5px 12px color-mix(in srgb, var(--accent) 35%, var(--sh-dark)),
-    -4px -4px 10px var(--sh-light);
+    0 8px 18px -6px color-mix(in srgb, var(--accent) 60%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
+/* Frosted glass for floating chrome: bars, sheets, menus. */
 @utility glass {
   background: var(--overlay);
+  backdrop-filter: saturate(1.7) blur(20px);
+  -webkit-backdrop-filter: saturate(1.7) blur(20px);
+}
+
+/* Translucent card with a light rim; reads as glass over the color mesh. */
+@utility glass-card {
+  background: var(--glass);
   backdrop-filter: saturate(1.6) blur(18px);
   -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Accent hero surface with glossy highlights. */
+@utility hero-gradient {
+  color: white;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.28), transparent 55%),
+    radial-gradient(80% 80% at 0% 100%, color-mix(in srgb, var(--accent-2) 70%, transparent), transparent 70%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent) 50%, color-mix(in srgb, var(--accent) 75%, black));
+  box-shadow:
+    0 18px 36px -16px color-mix(in srgb, var(--accent) 70%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* Grouped rows inside sheets and glass panels. */
+@utility group-fill {
+  background: var(--group);
+}
+
+/* Translucent tinted fill in the current text color (pair with a text-* tone). */
+@utility tint {
+  background: color-mix(in srgb, currentColor 13%, transparent);
 }
 
 @utility scrollbar-none {
@@ -188,6 +249,14 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+@utility tap {
+  -webkit-touch-callout: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
 /* ---------------------------------------------------------------- motion */
 
 @keyframes xl-fade-up {
@@ -198,6 +267,24 @@ body {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes xl-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes xl-sheet-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
   }
 }
 
@@ -293,22 +380,16 @@ body {
 }
 
 .ant-btn-primary:not(:disabled):not(.ant-btn-dangerous) {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 80%, white),
-    var(--accent)
-  ) !important;
-  box-shadow:
-    4px 4px 10px color-mix(in srgb, var(--accent) 30%, var(--sh-dark)),
-    -3px -3px 8px var(--sh-light) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, var(--accent-2)), var(--accent)) !important;
+  box-shadow: 0 8px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent) !important;
 }
 
+/* Text fields and selects (antd v6: the .ant-select root is the bordered box). */
 .ant-input-affix-wrapper,
 .ant-input:not(.ant-input-borderless),
 .ant-input-number,
-.ant-select-selector,
 .ant-picker,
-.ant-select .ant-select-content-has-value,
+.ant-select.ant-select-outlined,
 .ant-input-number-affix-wrapper {
   border-color: transparent !important;
   background: var(--surface) !important;
@@ -318,7 +399,8 @@ body {
 }
 
 .ant-input-affix-wrapper > .ant-input,
-.ant-input-number-affix-wrapper .ant-input-number {
+.ant-input-number-affix-wrapper .ant-input-number,
+.ant-input-number .ant-input-number-input {
   box-shadow: none !important;
   background: transparent !important;
 }
@@ -326,7 +408,8 @@ body {
 .ant-input-affix-wrapper-focused,
 .ant-input:focus,
 .ant-input-number-focused,
-.ant-select-focused .ant-select-selector {
+.ant-select-focused.ant-select-outlined,
+.ant-select-open.ant-select-outlined {
   box-shadow:
     inset 2px 2px 5px var(--sh-dark),
     inset -2px -2px 5px var(--sh-light),
@@ -337,27 +420,130 @@ body {
   border-color: transparent !important;
 }
 
-.ant-modal-container,
+.ant-select-single .ant-select-content {
+  font-weight: 500;
+}
+
+.ant-select-suffix {
+  color: var(--text-3);
+}
+
+/* Floating menus: frosted panels with rounded, tinted rows. */
+.ant-dropdown .ant-dropdown-menu,
+.ant-select-dropdown,
+.ant-cascader-dropdown,
+.ant-popover .ant-popover-inner,
+.ant-message-notice-content {
+  background: var(--glass-strong) !important;
+  backdrop-filter: saturate(1.7) blur(22px);
+  -webkit-backdrop-filter: saturate(1.7) blur(22px);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 18px 40px -12px rgba(30, 38, 60, 0.35),
+    0 2px 6px rgba(30, 38, 60, 0.08) !important;
+}
+
+.ant-dropdown .ant-dropdown-menu,
+.ant-select-dropdown {
+  border-radius: 18px !important;
+  padding: 6px !important;
+}
+
+.ant-select-dropdown {
+  min-width: 180px;
+}
+
+.ant-dropdown .ant-dropdown-menu-item {
+  border-radius: 12px !important;
+  padding: 9px 12px !important;
+  font-size: 14px;
+  gap: 4px;
+}
+
+.ant-dropdown .ant-dropdown-menu-item-divider {
+  margin: 5px 6px !important;
+  background: var(--line) !important;
+}
+
+.ant-dropdown .ant-dropdown-menu-item-icon {
+  color: var(--text-2);
+  margin-inline-end: 10px !important;
+}
+
+.ant-dropdown .ant-dropdown-menu-item-danger .ant-dropdown-menu-item-icon {
+  color: inherit;
+}
+
+.ant-dropdown .ant-dropdown-menu-item:not(.ant-dropdown-menu-item-danger):hover,
+.ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: color-mix(in srgb, var(--text) 7%, transparent) !important;
+}
+
+.ant-dropdown .ant-dropdown-menu-item-selected,
+.ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+}
+
+.ant-select-dropdown .ant-select-item {
+  border-radius: 12px !important;
+  min-height: 38px;
+  padding: 8px 12px !important;
+  align-items: center;
+  font-size: 14px;
+}
+
+.ant-select-dropdown .ant-select-item-option + .ant-select-item-option {
+  margin-top: 2px;
+}
+
+/* A check mark marks the chosen option. */
+.ant-select-dropdown .ant-select-item-option-selected .ant-select-item-option-state::after {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+  display: block;
+}
+
+.ant-select-tree .ant-select-tree-node-content-wrapper,
+.ant-select-tree .ant-select-tree-treenode {
+  border-radius: 10px !important;
+}
+
+.ant-select-tree .ant-select-tree-node-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent);
+}
+
+.ant-message-notice-content {
+  border-radius: 16px !important;
+}
+
+.ant-tooltip .ant-tooltip-inner {
+  border-radius: 10px;
+}
+
+/* Dialogs */
+.ant-modal .ant-modal-container,
 .ant-modal .ant-modal-content {
   background: var(--surface) !important;
+  border: 1px solid var(--glass-border);
   box-shadow:
-    18px 18px 40px var(--sh-dark-strong),
-    -10px -10px 30px var(--sh-light) !important;
+    0 30px 60px -20px rgba(20, 26, 40, 0.45),
+    inset 0 1px 0 color-mix(in srgb, white 30%, transparent) !important;
 }
 
 .ant-modal-mask {
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.ant-dropdown-menu,
-.ant-select-dropdown,
-.ant-popover-inner,
-.ant-message-notice-content,
-.ant-popconfirm .ant-popover-inner {
-  background: var(--surface) !important;
-  box-shadow:
-    8px 8px 22px var(--sh-dark-strong),
-    -6px -6px 16px var(--sh-light) !important;
+.ant-modal .ant-modal-close {
+  border-radius: 12px;
 }
 
 .ant-segmented {
@@ -384,6 +570,10 @@ body {
     inset -2px -2px 5px var(--sh-light);
 }
 
+.ant-switch.ant-switch-checked {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, var(--accent-2)), var(--accent)) !important;
+}
+
 .ant-tabs-nav::before {
   border-color: var(--line) !important;
 }
@@ -394,4 +584,89 @@ body {
 
 .ant-form-item-extra {
   font-size: 12px;
+}
+
+.ant-descriptions-bordered .ant-descriptions-view {
+  border-radius: 18px !important;
+}
+
+/* Phones: dialogs become bottom sheets, like native apps. */
+@media (max-width: 767px) {
+  .ant-modal-wrap .ant-modal {
+    position: fixed;
+    inset: auto 0 0 0;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    transform-origin: 50% 100% !important;
+  }
+
+  .ant-modal-wrap .ant-modal .ant-modal-container,
+  .ant-modal-wrap .ant-modal .ant-modal-content {
+    max-height: 92dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 28px 28px 0 0 !important;
+    border-bottom: 0;
+    padding: 22px 18px calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .ant-modal-wrap .ant-modal .ant-modal-container::before,
+  .ant-modal-wrap .ant-modal .ant-modal-content::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 40px;
+    height: 5px;
+    margin-left: -20px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--text) 18%, transparent);
+  }
+
+  .ant-modal-wrap .ant-modal.ant-zoom-enter,
+  .ant-modal-wrap .ant-modal.ant-zoom-appear {
+    animation-name: xl-sheet-in !important;
+    animation-duration: 0.28s !important;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    opacity: 1 !important;
+  }
+
+  .ant-modal-wrap .ant-modal.ant-zoom-leave {
+    animation-name: xl-sheet-out !important;
+    animation-duration: 0.22s !important;
+    opacity: 1 !important;
+  }
+
+  .ant-modal-footer {
+    display: flex;
+    gap: 10px;
+  }
+
+  .ant-modal-footer > .ant-btn {
+    flex: 1;
+    height: 46px;
+    margin: 0 !important;
+  }
+
+  .ant-modal-confirm-btns {
+    display: flex;
+    gap: 10px;
+  }
+
+  .ant-modal-confirm-btns > .ant-btn {
+    flex: 1;
+    height: 46px;
+    margin: 0 !important;
+  }
+
+  /* Inputs at 16px keep iOS Safari from zooming in on focus. */
+  .ant-input,
+  .ant-input-number-input,
+  .ant-select-input,
+  textarea.ant-input {
+    font-size: 16px !important;
+  }
 }

@@ -48,10 +48,10 @@ export default function FileIcon({
   }
   return (
     <div
-      className={cx('neu-raised-xs flex shrink-0 items-center justify-center rounded-2xl', className)}
-      style={{ width: size, height: size, color }}
+      className={cx('flex shrink-0 items-center justify-center rounded-2xl', className)}
+      style={{ width: size, height: size, color, background: `color-mix(in srgb, ${color} 15%, transparent)` }}
     >
-      <Icon size={Math.round(size * 0.46)} strokeWidth={1.9} fill={type === 'folder' ? `color-mix(in srgb, ${color} 30%, transparent)` : 'none'} />
+      <Icon size={Math.round(size * 0.46)} strokeWidth={1.9} fill={type === 'folder' ? `color-mix(in srgb, ${color} 35%, transparent)` : 'none'} />
     </div>
   )
 }

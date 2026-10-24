@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Form, Input, InputNumber, Select, Switch, type FormInstance } from 'antd'
+import { App, Form, Input, InputNumber, Switch, type FormInstance } from 'antd'
 import {
   Cloud,
   Cpu,
@@ -24,9 +24,10 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import FolderPickerModal from '../components/FolderPickerModal'
 import LocalPathPicker from '../components/LocalPathPicker'
+import OptionSelect from '../components/OptionSelect'
 import PageHeader from '../components/PageHeader'
 import { cx } from '../lib/cx'
-import { Card, IconButton, PillButton, SectionHeader } from '../components/ui'
+import { Card, IconButton, IconTile, ListGroup, ListItem, PillButton, SectionHeader, type Tone } from '../components/ui'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { errorMessage, settingsApi, systemApi, type AppSettings, type SettingsSection } from '../lib/api'
 import { formatBytes } from '../lib/format'
@@ -38,22 +39,27 @@ interface Tab {
   key: string
   label: string
   icon: LucideIcon
+  tone: Tone
+  group: string
+  hint: string
 }
 
 const TABS: Tab[] = [
-  { key: 'account', label: '账号', icon: UserRound },
-  { key: 'network', label: '网络', icon: Globe },
-  { key: 'drive', label: '云盘', icon: Cloud },
-  { key: 'engine', label: '下载引擎', icon: Cpu },
-  { key: 'download', label: '云盘下载', icon: Download },
-  { key: 'upload', label: '上传', icon: Upload },
-  { key: 'offline', label: '云添加', icon: Magnet },
-  { key: 'share', label: '分享', icon: Share2 },
-  { key: 'player', label: '播放', icon: Play },
-  { key: 'ui', label: '外观', icon: Palette },
-  { key: 'system', label: '系统', icon: Server },
-  { key: 'about', label: '关于', icon: Info },
+  { key: 'account', label: '账号', icon: UserRound, tone: 'accent', group: '账号', hint: '登录方式、Token 与设备 ID' },
+  { key: 'engine', label: '下载引擎', icon: Cpu, tone: 'accent', group: '下载与传输', hint: '目录、限速、并发与进程' },
+  { key: 'download', label: '云盘下载', icon: Download, tone: 'success', group: '下载与传输', hint: '下载方式与内置下载器' },
+  { key: 'upload', label: '上传', icon: Upload, tone: 'success', group: '下载与传输', hint: '秒传、分片与并发' },
+  { key: 'offline', label: '云添加', icon: Magnet, tone: 'violet', group: '下载与传输', hint: '默认保存位置与刷新' },
+  { key: 'drive', label: '云盘', icon: Cloud, tone: 'warning', group: '云盘', hint: '视图、排序与删除方式' },
+  { key: 'share', label: '分享', icon: Share2, tone: 'violet', group: '云盘', hint: '有效期与提取码默认值' },
+  { key: 'player', label: '播放', icon: Play, tone: 'danger', group: '云盘', hint: '外部播放器与自动播放' },
+  { key: 'ui', label: '外观', icon: Palette, tone: 'violet', group: '通用', hint: '主题、强调色与动画' },
+  { key: 'network', label: '网络', icon: Globe, tone: 'accent', group: '通用', hint: '代理、超时与直连 IP' },
+  { key: 'system', label: '系统', icon: Server, tone: 'muted', group: '通用', hint: '本机访问范围与运行环境' },
+  { key: 'about', label: '关于', icon: Info, tone: 'muted', group: '通用', hint: '说明与 API 文档' },
 ]
+
+const TAB_GROUPS = [...new Set(TABS.map((t) => t.group))]
 
 const ACCENTS = ['#5b7cfa', '#7a6cf6', '#2fb6a5', '#3fa1f0', '#f0739a', '#f2994a', '#2fb67c', '#e5566b']
 
@@ -161,7 +167,7 @@ function SectionForm<S extends SettingsSection>({
 
   if (!value) return null
   return (
-    <Card className="p-5 md:p-7">
+    <Card className="p-4 md:p-7">
       <SectionHeader
         title={title}
         extra={<IconButton icon={RotateCcw} label="恢复默认" size="sm" onClick={reset} />}
@@ -173,11 +179,11 @@ function SectionForm<S extends SettingsSection>({
       </Form>
       <div
         className={cx(
-          'sticky bottom-24 z-10 mt-5 flex items-center justify-end gap-3 transition-all duration-300 md:bottom-6',
+          'glass-card sticky bottom-[calc(env(safe-area-inset-bottom)+88px)] z-30 mt-5 flex items-center justify-end gap-2.5 rounded-[22px] p-2 pl-4 transition-all duration-300 md:bottom-6',
           dirty ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0',
         )}
       >
-        <span className="text-[12px] text-ink-3">有未保存的修改</span>
+        <span className="mr-auto text-[12px] text-ink-3">有未保存的修改</span>
         <PillButton onClick={() => (form.resetFields(), form.setFieldsValue(toForm ? toForm(value) : value), setDirty(false))}>撤销</PillButton>
         <PillButton primary icon={Save} disabled={saving} onClick={() => save()}>
           保存
@@ -275,10 +281,10 @@ function DrivePanel() {
             <NumberInput min={20} max={500} suffix="项" />
           </Field>
           <Field name="default_view" label="默认视图">
-            <Select options={[{ value: 'list', label: '列表' }, { value: 'grid', label: '网格' }]} />
+            <OptionSelect title="默认视图" options={[{ value: 'list', label: '列表' }, { value: 'grid', label: '网格' }]} />
           </Field>
           <Field name="sort_by" label="排序方式">
-            <Select
+            <OptionSelect title="排序方式"
               options={[
                 { value: 'name', label: '名称' },
                 { value: 'modified_time', label: '修改时间' },
@@ -288,12 +294,12 @@ function DrivePanel() {
             />
           </Field>
           <Field name="sort_order" label="排序方向">
-            <Select options={[{ value: 'asc', label: '升序' }, { value: 'desc', label: '降序' }]} />
+            <OptionSelect title="排序方向" options={[{ value: 'asc', label: '升序' }, { value: 'desc', label: '降序' }]} />
           </Field>
           <SwitchField name="folders_first" label="文件夹优先" />
           <SwitchField name="show_thumbnails" label="显示缩略图" desc="视频 / 图片显示迅雷生成的预览图" />
           <Field name="delete_mode" label="默认删除方式">
-            <Select options={[{ value: 'trash', label: '移入回收站' }, { value: 'permanent', label: '彻底删除' }]} />
+            <OptionSelect title="默认删除方式" options={[{ value: 'trash', label: '移入回收站' }, { value: 'permanent', label: '彻底删除' }]} />
           </Field>
           <SwitchField name="confirm_delete" label="删除前确认" />
         </>
@@ -310,7 +316,7 @@ function DownloadPanel() {
       {(form) => (
         <>
           <Field name="cloud_engine" label="下载方式" desc="迅雷引擎任务显示在「下载」页，内置下载器任务显示在「传输」页">
-            <Select
+            <OptionSelect title="下载方式"
               options={[
                 { value: 'engine', label: '迅雷下载引擎（推荐）' },
                 { value: 'builtin', label: '内置 HTTP 下载器' },
@@ -362,7 +368,7 @@ function DownloadPanel() {
             <NumberInput min={0} max={50} suffix="次" />
           </Field>
           <Field name="conflict" label="同名文件处理">
-            <Select
+            <OptionSelect title="同名文件处理"
               options={[
                 { value: 'rename', label: '自动重命名' },
                 { value: 'overwrite', label: '覆盖' },
@@ -500,7 +506,7 @@ function EnginePanel() {
             <DirField name="home_dir" label="引擎数据目录" desc="引擎的 HOME（含 .drive 登录状态），留空使用 <数据目录>/engine" form={form} />
             <DirField name="torrent_dir" label="种子缓存目录" desc="磁力解析得到的 .torrent，留空使用 <引擎数据目录>/torrents" form={form} />
             <Field name="platform" label="平台身份" desc="需账号拥有对应平台的使用权限">
-              <Select
+              <OptionSelect title="平台身份"
                 options={[
                   { value: 'qnap', label: '威联通 QNAP' },
                   { value: 'synology', label: '群晖 Synology' },
@@ -617,7 +623,7 @@ function SharePanel() {
       {() => (
         <>
           <Field name="expiration_days" label="默认有效期">
-            <Select
+            <OptionSelect title="默认有效期"
               options={[
                 { value: 1, label: '1 天' },
                 { value: 7, label: '7 天' },
@@ -646,7 +652,7 @@ function PlayerPanel() {
       {() => (
         <>
           <Field name="external_player" label="外部播放器" desc="在文件详情中提供一键调用（需在设备上安装对应播放器）">
-            <Select options={PLAYERS} />
+            <OptionSelect title="外部播放器" options={PLAYERS} />
           </Field>
           <SwitchField name="autoplay" label="打开视频时自动播放" />
           <SwitchField name="remember_volume" label="记住音量" />
@@ -662,7 +668,7 @@ function UiPanel() {
       {(form) => (
         <>
           <Field name="theme" label="主题">
-            <Select
+            <OptionSelect title="主题"
               options={[
                 { value: 'auto', label: '跟随系统' },
                 { value: 'light', label: '浅色' },
@@ -670,7 +676,7 @@ function UiPanel() {
               ]}
             />
           </Field>
-          <Row label="强调色" desc="用于选中态、进度条与主要按钮">
+          <Row label="强调色" desc="用于选中态、进度条与主要按钮；点缀色会随之自动搭配">
             <Form.Item name="accent" noStyle>
               <Input type="hidden" />
             </Form.Item>
@@ -696,17 +702,18 @@ function UiPanel() {
                   ))}
                   <input
                     type="color"
-                    value={form.getFieldValue('accent') as string}
+                    aria-label="自定义颜色"
+                    value={(form.getFieldValue('accent') as string | undefined) ?? '#5b7cfa'}
                     onChange={(e) => form.setFieldValue('accent', e.target.value)}
                     onBlur={() => form.submit()}
-                    className="h-8 w-10 cursor-pointer rounded-lg border-0 bg-transparent"
+                    className="neu-raised-xs h-8 w-8 cursor-pointer overflow-hidden rounded-full border-0 p-1 [&::-moz-color-swatch]:rounded-full [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
                   />
                 </div>
               )}
             </Form.Item>
           </Row>
           <Field name="density" label="列表密度">
-            <Select options={[{ value: 'comfortable', label: '舒适' }, { value: 'compact', label: '紧凑' }]} />
+            <OptionSelect title="列表密度" options={[{ value: 'comfortable', label: '舒适' }, { value: 'compact', label: '紧凑' }]} />
           </Field>
           <SwitchField name="animations" label="界面动画" />
           <Field name="transfer_poll_ms" label="传输进度刷新间隔" desc="有活动传输时的刷新频率">
@@ -817,14 +824,14 @@ function AboutPanel() {
 }
 
 export default function SettingsPage() {
-  const { tab = 'account' } = useParams()
+  const { tab } = useParams()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const active = TABS.find((t) => t.key === tab) ?? TABS[0]
 
   const content: Record<string, ReactNode> = {
     account: (
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <AccountPanel />
         <AccountAdvanced />
       </div>
@@ -842,41 +849,65 @@ export default function SettingsPage() {
     about: <AboutPanel />,
   }
 
+  // Phones: a grouped menu of sections, each section on its own page.
+  if (isMobile && !tab) {
+    return (
+      <div>
+        <PageHeader title="设置" subtitle="所有设置均保存在服务器并立即生效" />
+        <div className="space-y-5">
+          {TAB_GROUPS.map((group) => (
+            <ListGroup key={group} title={group}>
+              {TABS.filter((t) => t.group === group).map((item) => (
+                <ListItem key={item.key} icon={item.icon} tone={item.tone} title={item.label} subtitle={item.hint} onClick={() => navigate(`/settings/${item.key}`)} />
+              ))}
+            </ListGroup>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <div>
+        <PageHeader title={active.label} subtitle={active.hint} back={() => navigate('/settings')} />
+        <div key={active.key} className="page-enter">
+          {content[active.key]}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
-      <PageHeader title="设置" subtitle="所有设置均保存在服务器并立即生效">
-        {isMobile && (
-          <div className="scrollbar-none -mx-4 mt-1 flex gap-2.5 overflow-x-auto px-4 py-3">
-            {TABS.map((item) => (
-              <PillButton key={item.key} icon={item.icon} active={item.key === active.key} onClick={() => navigate(`/settings/${item.key}`)} className="!px-3.5 !py-2 !text-[13px]">
-                {item.label}
-              </PillButton>
-            ))}
-          </div>
-        )}
-      </PageHeader>
+      <PageHeader title="设置" subtitle="所有设置均保存在服务器并立即生效" />
       <div className="flex gap-6">
-        {!isMobile && (
-          <Card className="sticky top-6 h-fit w-56 shrink-0 space-y-1.5 p-3">
-            {TABS.map((item) => {
-              const on = item.key === active.key
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => navigate(`/settings/${item.key}`)}
-                  className={cx(
-                    'flex w-full cursor-pointer items-center gap-3 rounded-2xl border-0 bg-transparent px-3.5 py-2.5 text-left text-[14px] font-medium transition',
-                    on ? 'neu-inset-sm text-accent' : 'text-ink-2 hover:text-ink',
-                  )}
-                >
-                  <item.icon size={17} />
-                  {item.label}
-                </button>
-              )
-            })}
-          </Card>
-        )}
+        <Card className="sticky top-6 h-fit w-60 shrink-0 p-3">
+          {TAB_GROUPS.map((group, index) => (
+            <div key={group} className={cx(index > 0 && 'mt-3')}>
+              <div className="mb-1 px-3 text-[11px] font-medium tracking-wider text-ink-3">{group}</div>
+              <div className="space-y-1">
+                {TABS.filter((t) => t.group === group).map((item) => {
+                  const on = item.key === active.key
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => navigate(`/settings/${item.key}`)}
+                      className={cx(
+                        'flex w-full cursor-pointer items-center gap-3 rounded-2xl border-0 bg-transparent px-2.5 py-2 text-left text-[14px] font-medium transition',
+                        on ? 'neu-inset-sm text-accent' : 'text-ink-2 hover:bg-black/[0.03] hover:text-ink dark:hover:bg-white/[0.03]',
+                      )}
+                    >
+                      <IconTile icon={item.icon} tone={on ? 'accent' : item.tone} size={30} />
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </Card>
         <div key={active.key} className="page-enter min-w-0 flex-1">
           {content[active.key]}
         </div>

@@ -1,4 +1,5 @@
 import { App, Descriptions, Modal } from 'antd'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { Copy } from 'lucide-react'
 import type { DownloadTask } from '../lib/api'
 import { copyText } from '../lib/clipboard'
@@ -9,6 +10,7 @@ import { PillButton } from './ui'
 /** Full task information, including the raw parameters reported by the engine. */
 export default function DownloadDetailModal({ task, onClose }: { task: DownloadTask | null; onClose: () => void }) {
   const { message } = App.useApp()
+  const isMobile = useIsMobile()
   const copy = (text: string) => void copyText(text).then((ok) => ok && message.success('已复制'))
   return (
     <Modal open={Boolean(task)} title="任务详情" footer={null} width={720} onCancel={onClose} destroyOnHidden>
@@ -17,7 +19,8 @@ export default function DownloadDetailModal({ task, onClose }: { task: DownloadT
           <Descriptions
             size="small"
             column={1}
-            bordered
+            bordered={!isMobile}
+            layout={isMobile ? 'vertical' : 'horizontal'}
             items={[
               { key: 'name', label: '名称', children: task.name },
               { key: 'status', label: '状态', children: `${DOWNLOAD_STATUS[task.status].label}（${task.phase}）${task.message ? ` · ${task.message}` : ''}` },

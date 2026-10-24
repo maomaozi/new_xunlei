@@ -5,11 +5,13 @@ import FileIcon from '../components/FileIcon'
 import LoginRequired from '../components/LoginRequired'
 import PageHeader from '../components/PageHeader'
 import { Badge, Card, EmptyState, IconButton, ListSkeleton, PillButton } from '../components/ui'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { errorMessage, isAuthError, sharesApi, type ShareItem } from '../lib/api'
 import { copyText } from '../lib/clipboard'
 import { formatBytes, formatTime } from '../lib/format'
 
 export default function SharesPage() {
+  const isMobile = useIsMobile()
   const { message, modal } = App.useApp()
   const queryClient = useQueryClient()
   const query = useInfiniteQuery({
@@ -56,7 +58,7 @@ export default function SharesPage() {
       <PageHeader
         title="我的分享"
         subtitle="在云盘中选择文件即可创建分享"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => query.refetch()} spinning={query.isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" size={isMobile ? 'sm' : 'md'} onClick={() => query.refetch()} spinning={query.isFetching} />}
       />
       {query.isLoading ? (
         <Card>
@@ -67,9 +69,9 @@ export default function SharesPage() {
           <EmptyState icon={Share2} title="还没有分享" description="分享链接可以设置有效期、提取码和转存次数" />
         </Card>
       ) : (
-        <div className="stagger grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="stagger grid gap-4 md:grid-cols-2 md:gap-5 2xl:grid-cols-3">
           {shares.map((share) => (
-            <Card key={share.share_id} className="flex flex-col gap-4">
+            <Card key={share.share_id} className="flex flex-col gap-4 p-4 md:p-5">
               <div className="flex items-start gap-3">
                 <FileIcon
                   file={{ kind: share.file_kind, name: share.params?.name ?? share.title, mime_type: '', thumbnail_link: share.thumbnail_link }}
@@ -84,7 +86,7 @@ export default function SharesPage() {
                   </div>
                 </div>
               </div>
-              <div className="neu-inset grid grid-cols-3 gap-2 rounded-2xl p-3 text-center text-[12px] text-ink-3">
+              <div className="grid grid-cols-3 gap-2 rounded-2xl bg-black/[0.035] p-3 text-center text-[12px] text-ink-3 dark:bg-white/[0.04]">
                 <div>
                   <div className="flex items-center justify-center gap-1"><Eye size={12} /> 浏览</div>
                   <div className="mt-1 text-[15px] font-semibold text-ink tabular-nums">{share.view_count}</div>
@@ -98,7 +100,7 @@ export default function SharesPage() {
                 </div>
                 <div>
                   <div>提取码</div>
-                  <div className="mt-1 font-mono text-[15px] font-semibold tracking-wider text-accent">{share.pass_code || '无'}</div>
+                  <div className="mt-1 font-mono text-[15px] font-semibold tracking-wider text-accent-2">{share.pass_code || '无'}</div>
                 </div>
               </div>
               <div className="text-[12px] text-ink-3">

@@ -7,13 +7,14 @@ import EngineLoginModal from '../components/EngineLoginModal'
 import PageHeader from '../components/PageHeader'
 import { Badge, Card, IconButton, PillButton, ProgressBar, SectionHeader } from '../components/ui'
 import { useEngineStatus } from '../hooks/useEngine'
+import { useIsMobile } from '../hooks/useMediaQuery'
 import { engineApi, errorMessage, type EngineStatus } from '../lib/api'
 import { ENGINE_STATE } from '../lib/downloads'
 import { formatBytes, formatDuration, formatSpeed, formatTime, percent } from '../lib/format'
 
 function InfoList({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <div className="neu-inset divide-y divide-line rounded-3xl px-4 py-1 text-[13px]">
+    <div className="divide-y divide-line rounded-[20px] bg-black/[0.03] px-4 py-1 text-[13px] dark:bg-white/[0.035]">
       {rows.map(([label, value]) => (
         <div key={label} className="flex justify-between gap-4 py-2.5">
           <span className="shrink-0 text-ink-3">{label}</span>
@@ -56,7 +57,7 @@ function ProcessCard({ status }: { status: EngineStatus }) {
   }
 
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="p-4 md:p-6">
       <SectionHeader
         title="引擎进程"
         extra={<Badge tone={state.tone}>{state.label}</Badge>}
@@ -124,7 +125,7 @@ function AccountCard({ status }: { status: EngineStatus }) {
     })
 
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="p-4 md:p-6">
       <SectionHeader title="引擎账号" extra={status.logged_in ? <Badge tone="success">已登录</Badge> : <Badge>未登录</Badge>} />
       {status.logged_in ? (
         <div className="flex items-center gap-3">
@@ -167,7 +168,7 @@ function DisksCard({ status }: { status: EngineStatus }) {
   const disks = status.disks.filter((d) => !d.is_root)
   if (!disks.length) return null
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="p-4 md:p-6">
       <SectionHeader title="下载目录" extra={<HardDrive size={17} className="text-ink-3" />} />
       <div className="space-y-4">
         {disks.map((disk) => (
@@ -219,7 +220,7 @@ function TrialCard() {
     })
 
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="p-4 md:p-6">
       <SectionHeader title="超级加速试用" extra={<Gauge size={17} className="text-ink-3" />} />
       {trial.error ? (
         <div className="text-[13px] text-danger">{errorMessage(trial.error)}</div>
@@ -254,7 +255,7 @@ function LogsCard() {
   const logs = useQuery({ queryKey: ['engine-logs', lines], queryFn: () => engineApi.logs(lines), refetchInterval: 5000 })
   const shown = (logs.data?.lines ?? []).filter((line) => !keyword || line.toLowerCase().includes(keyword.toLowerCase()))
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="p-4 md:p-6">
       <SectionHeader
         title="引擎日志"
         extra={
@@ -267,7 +268,7 @@ function LogsCard() {
         }
       />
       <Input allowClear placeholder="过滤，例如 ERROR 或任务名" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="!mb-3" />
-      <pre className="neu-inset-sm m-0 max-h-[420px] overflow-auto rounded-2xl p-3 text-[11px] leading-relaxed break-all whitespace-pre-wrap text-ink-2">
+      <pre className="neu-inset-sm m-0 max-h-[50vh] overflow-auto md:max-h-[420px] rounded-2xl p-3 text-[11px] leading-relaxed break-all whitespace-pre-wrap text-ink-2">
         {shown.length ? shown.join('\n') : '暂无日志'}
       </pre>
       {logs.data?.path && <div className="mt-2 text-[11px] text-ink-3">{logs.data.path}</div>}
@@ -277,19 +278,20 @@ function LogsCard() {
 
 export default function EnginePage() {
   const { data: status, refetch, isFetching } = useEngineStatus(true)
+  const isMobile = useIsMobile()
   return (
     <div>
       <PageHeader
         title="下载引擎"
         subtitle="查看下载引擎状态、账号信息与运行日志"
-        actions={<IconButton icon={RefreshCw} label="刷新" onClick={() => refetch()} spinning={isFetching} />}
+        actions={<IconButton icon={RefreshCw} label="刷新" size={isMobile ? 'sm' : 'md'} onClick={() => refetch()} spinning={isFetching} />}
       />
       {!status ? (
         <Card className="flex items-center gap-3 p-6 text-ink-3">
           <Cpu size={18} /> 正在读取引擎状态…
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           {status.conflicts.length > 0 && (
             <Card className="p-5 text-[13px]">
               <div className="mb-2 flex items-center gap-2 font-semibold text-warning">
@@ -305,9 +307,9 @@ export default function EnginePage() {
               ))}
             </Card>
           )}
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
             <ProcessCard status={status} />
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               <AccountCard status={status} />
               <DisksCard status={status} />
             </div>

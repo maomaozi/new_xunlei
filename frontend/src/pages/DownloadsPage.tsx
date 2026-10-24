@@ -1,18 +1,24 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Checkbox, Input, Segmented } from 'antd'
-import { ArrowDown, CheckCircle2, CircleAlert, Download, Gauge, Pause, Play, Plus, RefreshCw, RotateCw, Search, Trash2 } from 'lucide-react'
+import { App, Checkbox, Input } from 'antd'
+import { ArrowDown, CheckCheck, CircleAlert, Download, Gauge, Info, Pause, Play, Plus, RefreshCw, RotateCw, Search, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import AddDownloadModal from '../components/AddDownloadModal'
+import BottomSheet, { SheetAction, SheetGroup } from '../components/BottomSheet'
 import DownloadDetailModal from '../components/DownloadDetailModal'
-import DownloadRow, { type DownloadAction } from '../components/DownloadRow'
+import DownloadRow from '../components/DownloadRow'
+import { primaryAction, taskIcon, type DownloadAction } from '../lib/downloadActions'
 import EngineBanner from '../components/EngineBanner'
+import HeroStats from '../components/HeroStats'
 import LoginRequired from '../components/LoginRequired'
 import PageHeader from '../components/PageHeader'
-import { Badge, Card, EmptyState, IconButton, ListSkeleton, PillButton, Stat } from '../components/ui'
+import { ActionBar, Badge, Card, Chips, EmptyState, IconButton, IconTile, ListSkeleton, PillButton, SelectionControls } from '../components/ui'
 import { useDownloads, useEngineStatus, useLiveDownloads } from '../hooks/useEngine'
+import { useIsMobile } from '../hooks/useMediaQuery'
+import { useSelection } from '../hooks/useSelection'
 import { downloadsApi, engineApi, errorMessage, isAuthError, type DownloadFilter, type DownloadTask } from '../lib/api'
-import { formatDuration, formatSpeed } from '../lib/format'
-import { liveSignature, mergeLive } from '../lib/downloads'
+import { useCreate } from '../lib/createContext'
+import { cx } from '../lib/cx'
+import { DOWNLOAD_STATUS, liveSignature, mergeLive } from '../lib/downloads'
+import { formatBytes, formatDuration, formatSpeed } from '../lib/format'
 import { useAppSettings } from '../lib/settingsContext'
 
 const FILTERS: { value: DownloadFilter; label: string }[] = [
@@ -41,14 +47,17 @@ function TrialStrip({ active }: { active: number }) {
     }
   }
   return (
-    <Card className="mb-5 flex flex-wrap items-center gap-3 p-4">
-      <Gauge size={20} className="text-accent" />
-      <div className="min-w-0 flex-1 text-[13px] text-ink-2">
-        超级加速试用：剩余 {left} / {data.total} 次{trying ? `，本次还剩 ${formatDuration(data.remaining_seconds)}` : ''}
-        {data.saved_seconds > 0 && `，累计节省 ${formatDuration(data.saved_seconds)}`}
+    <Card glass className="mb-4 flex items-center gap-3 !rounded-[22px] p-3.5">
+      <IconTile icon={Gauge} tone="violet" size={40} />
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-semibold text-ink">超级加速试用</div>
+        <div className="mt-0.5 text-[12px] text-ink-3">
+          剩余 {left} / {data.total} 次{trying ? ` · 本次还剩 ${formatDuration(data.remaining_seconds)}` : ''}
+          {data.saved_seconds > 0 && ` · 累计节省 ${formatDuration(data.saved_seconds)}`}
+        </div>
       </div>
-      <PillButton primary disabled={!left || !active || trying} onClick={() => apply()}>
-        {trying ? '试用中' : '开启试用'}
+      <PillButton primary disabled={!left || !active || trying} onClick={() => apply()} className="!px-3.5 !py-2">
+        {trying ? '试用中' : '开启'}
       </PillButton>
     </Card>
   )
@@ -58,12 +67,15 @@ export default function DownloadsPage() {
   const { message, modal } = App.useApp()
   const { settings } = useAppSettings()
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
+  const create = useCreate()
   const engine = useEngineStatus(true)
   const [filter, setFilter] = useState<DownloadFilter>('active')
   const [keyword, setKeyword] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [adding, setAdding] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const selection = useSelection()
   const [detail, setDetail] = useState<DownloadTask | null>(null)
+  const [sheetTask, setSheetTask] = useState<DownloadTask | null>(null)
   const query = useDownloads(filter)
   const live = useLiveDownloads(engine.data?.state === 'running')
   const data = useMemo(() => mergeLive(query.data, live.data), [query.data, live.data])
@@ -83,20 +95,17 @@ export default function DownloadsPage() {
     const word = keyword.trim().toLowerCase()
     return word ? all.filter((t) => t.name.toLowerCase().includes(word) || t.local_path.toLowerCase().includes(word)) : all
   }, [data, keyword])
-  const chosen = tasks.filter((t) => selected.has(t.id))
+  const chosen = tasks.filter((t) => selection.has(t.id))
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['downloads'] })
     void queryClient.invalidateQueries({ queryKey: ['engine'] })
   }
 
-  const toggle = (id: string) =>
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const changeFilter = (value: DownloadFilter) => {
+    setFilter(value)
+    selection.clear()
+  }
 
   // The API call runs inside onOk so the dialog's button shows progress and blocks repeats.
   const confirmDelete = (items: DownloadTask[]) => {
@@ -116,7 +125,7 @@ export default function DownloadsPage() {
         try {
           await downloadsApi.remove(items.map((t) => t.id), withFiles)
           message.success('已删除')
-          setSelected(new Set())
+          selection.clear()
           refresh()
         } catch (error) {
           message.error(errorMessage(error))
@@ -137,7 +146,7 @@ export default function DownloadsPage() {
         const { results } = await downloadsApi.retry(ids)
         results.filter((r) => !r.ok).forEach((r) => message.error(r.error))
       }
-      setSelected(new Set())
+      selection.clear()
       refresh()
     } catch (error) {
       message.error(errorMessage(error))
@@ -160,103 +169,223 @@ export default function DownloadsPage() {
     error: summary?.error,
     all: summary?.total,
   }
+  const failedChosen = chosen.filter((t) => t.status === 'error')
+  const allSelected = chosen.length > 0 && chosen.length === tasks.length
+  const touchSelecting = isMobile && selection.selecting
+
+  const searchBox = (
+    <Input
+      allowClear
+      autoFocus={isMobile}
+      prefix={<Search size={15} className="text-ink-3" />}
+      placeholder="搜索名称或路径"
+      value={keyword}
+      onChange={(e) => setKeyword(e.target.value)}
+      className={isMobile ? '' : '!w-60'}
+    />
+  )
+
+  const sheetPrimary = sheetTask ? primaryAction(sheetTask) : null
 
   return (
     <div>
       <PageHeader
-        title="下载"
-        subtitle="由本机迅雷下载引擎执行：链接、磁力、种子与云盘文件"
+        title={touchSelecting ? `已选 ${chosen.length} 项` : '下载'}
+        subtitle={touchSelecting ? undefined : isMobile ? `${summary?.active ?? 0} 个进行中 · ${formatSpeed(summary?.speed ?? 0)}` : '由本机迅雷下载引擎执行：链接、磁力、种子与云盘文件'}
         actions={
-          <>
-            <IconButton icon={RefreshCw} label="刷新" onClick={refresh} spinning={query.isFetching} />
-            <PillButton primary icon={Plus} onClick={() => setAdding(true)}>
-              新建下载
-            </PillButton>
-          </>
+          touchSelecting ? (
+            <SelectionControls
+              allSelected={allSelected}
+              onAll={() => (allSelected ? selection.clear() : selection.selectAll(tasks.map((t) => t.id)))}
+              onDone={selection.clear}
+            />
+          ) : isMobile ? (
+            <>
+              <IconButton icon={Search} label="搜索" size="sm" active={searchOpen} onClick={() => setSearchOpen(!searchOpen)} />
+              <IconButton icon={RefreshCw} label="刷新" size="sm" onClick={refresh} spinning={query.isFetching} />
+            </>
+          ) : (
+            <>
+              <IconButton icon={RefreshCw} label="刷新" onClick={refresh} spinning={query.isFetching} />
+              <PillButton primary icon={Plus} onClick={create.download}>
+                新建下载
+              </PillButton>
+            </>
+          )
         }
-      />
+      >
+        {isMobile && searchOpen && !touchSelecting && searchBox}
+      </PageHeader>
       <EngineBanner status={engine.data} />
-      <div className="stagger mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={ArrowDown} label="下载速度" value={formatSpeed(summary?.speed ?? 0)} hint={engine.data?.logged_in ? `${engine.data.user.name} · VIP${engine.data.user.vip_level}` : undefined} />
-        <Stat icon={Download} label="下载中" value={summary?.active ?? 0} hint={`已暂停 ${summary?.paused ?? 0}`} tone="warning" />
-        <Stat icon={CheckCircle2} label="已完成" value={summary?.complete ?? 0} tone="success" />
-        <Stat icon={CircleAlert} label="失败" value={summary?.error ?? 0} tone="danger" />
-      </div>
+      <HeroStats
+        className="mb-4"
+        icon={ArrowDown}
+        label="下载速度"
+        value={formatSpeed(summary?.speed ?? 0)}
+        hint={engine.data?.logged_in ? `${engine.data.user.name} · VIP${engine.data.user.vip_level}` : undefined}
+        stats={[
+          { label: '下载中', value: summary?.active ?? 0, active: filter === 'active', onClick: () => changeFilter('active') },
+          { label: '已暂停', value: summary?.paused ?? 0, active: filter === 'paused', onClick: () => changeFilter('paused') },
+          { label: '已完成', value: summary?.complete ?? 0, active: filter === 'complete', onClick: () => changeFilter('complete') },
+          { label: '失败', value: summary?.error ?? 0, active: filter === 'error', onClick: () => changeFilter('error') },
+        ]}
+      />
       {live.error && settings?.engine.live_progress && (
         <div className="mb-4 text-[12px] text-ink-3">
           <Badge tone="warning">实时进度不可用</Badge> {errorMessage(live.error)}，进度改为按云端记录显示（约每分钟更新）。
         </div>
       )}
       {engine.data?.state === 'running' && engine.data.logged_in && <TrialStrip active={summary?.active ?? 0} />}
-      <Card className="p-3 md:p-4">
-        <div className="flex flex-wrap items-center gap-3 px-2 pt-1 pb-3">
-          <Segmented
-            value={filter}
-            onChange={(value) => {
-              setFilter(value as DownloadFilter)
-              setSelected(new Set())
-            }}
-            options={FILTERS.map((f) => ({ value: f.value, label: counts[f.value] === undefined ? f.label : `${f.label} ${counts[f.value]}` }))}
-          />
-          <Input
-            allowClear
-            prefix={<Search size={15} className="text-ink-3" />}
-            placeholder="搜索名称或路径"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            className="!w-full sm:!w-56"
-          />
+
+      <div className="mb-3 flex items-center gap-3">
+        <Chips
+          value={filter}
+          onChange={changeFilter}
+          options={FILTERS.map((f) => ({ value: f.value, label: f.label, count: counts[f.value] }))}
+          className={cx('min-w-0 flex-1 py-1', isMobile && '-mx-4 px-4')}
+        />
+        {!isMobile && searchBox}
+      </div>
+
+      {!isMobile && selection.selecting && (
+        <div className="glass-card sticky top-4 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-[22px] p-2 pl-4 text-[13px] text-ink-2">
+          已选 <b className="text-accent">{chosen.length}</b> 项
           <div className="flex-1" />
-          {tasks.length > 0 && (
-            <Checkbox
-              checked={chosen.length > 0 && chosen.length === tasks.length}
-              indeterminate={chosen.length > 0 && chosen.length < tasks.length}
-              onChange={(e) => setSelected(e.target.checked ? new Set(tasks.map((t) => t.id)) : new Set())}
-            >
-              全选
-            </Checkbox>
-          )}
-          {chosen.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <PillButton icon={Pause} onClick={() => run(chosen, 'pause')} className="!px-3">
-                暂停
-              </PillButton>
-              <PillButton icon={Play} onClick={() => run(chosen, 'resume')} className="!px-3">
-                继续
-              </PillButton>
-              <PillButton icon={RotateCw} onClick={() => run(chosen.filter((t) => t.status === 'error'), 'retry')} className="!px-3">
-                重试
-              </PillButton>
-              <PillButton icon={Trash2} onClick={() => run(chosen, 'delete')} className="!px-3 !text-danger">
-                删除 {chosen.length}
-              </PillButton>
-            </div>
-          )}
+          <PillButton icon={Pause} onClick={() => run(chosen, 'pause')} className="!px-3 !py-2">
+            暂停
+          </PillButton>
+          <PillButton icon={Play} onClick={() => run(chosen, 'resume')} className="!px-3 !py-2">
+            继续
+          </PillButton>
+          <PillButton icon={RotateCw} disabled={!failedChosen.length} onClick={() => run(failedChosen, 'retry')} className="!px-3 !py-2">
+            重试
+          </PillButton>
+          <PillButton icon={Trash2} onClick={() => run(chosen, 'delete')} className="!px-3 !py-2 !text-danger">
+            删除
+          </PillButton>
+          <PillButton onClick={selection.clear} className="!px-3 !py-2">
+            取消
+          </PillButton>
         </div>
+      )}
+
+      <Card className="!rounded-[26px] p-1.5 md:p-3">
+        {!isMobile && tasks.length > 0 && (
+          <div className="flex items-center gap-3 px-4 pt-1 pb-2 text-[12px] text-ink-3">
+            <Checkbox checked={allSelected} indeterminate={chosen.length > 0 && !allSelected} onChange={(e) => (e.target.checked ? selection.selectAll(tasks.map((t) => t.id)) : selection.clear())}>
+              <span className="text-[12px] text-ink-3">全选</span>
+            </Checkbox>
+            <div className="flex-1" />
+            <span>{tasks.length} 个任务</span>
+          </div>
+        )}
         {query.isLoading ? (
           <ListSkeleton rows={5} />
         ) : query.error ? (
-          <EmptyState icon={CircleAlert} title="加载失败" description={errorMessage(query.error)} />
+          <EmptyState icon={CircleAlert} title="加载失败" description={errorMessage(query.error)} action={<PillButton onClick={refresh}>重试</PillButton>} />
         ) : tasks.length === 0 ? (
           <EmptyState
             icon={Download}
             title={keyword ? '没有匹配的任务' : '没有下载任务'}
-            description="点击“新建下载”添加链接或种子，或在云盘中选择文件下载到本机"
+            description={isMobile ? '点击下方 + 添加链接或种子，或在云盘中选择文件下载到本机' : '点击“新建下载”添加链接或种子，或在云盘中选择文件下载到本机'}
             action={
-              <PillButton primary icon={Plus} onClick={() => setAdding(true)}>
+              <PillButton primary icon={Plus} onClick={create.download}>
                 新建下载
               </PillButton>
             }
           />
         ) : (
-          <div className="space-y-1">
+          <div className="divide-y divide-line/70">
             {tasks.map((task) => (
-              <DownloadRow key={task.id} task={task} selected={selected.has(task.id)} onToggle={() => toggle(task.id)} onAction={(action) => run([task], action)} />
+              <DownloadRow
+                key={task.id}
+                task={task}
+                touch={isMobile}
+                selected={selection.has(task.id)}
+                selecting={selection.selecting}
+                onToggle={() => selection.toggle(task.id)}
+                onAction={(action) => run([task], action)}
+                onOpen={() => setSheetTask(task)}
+              />
             ))}
           </div>
         )}
       </Card>
-      <AddDownloadModal open={adding} onClose={() => setAdding(false)} />
+      {!isMobile && !selection.selecting && tasks.length > 0 && <div className="mt-3 text-center text-xs text-ink-3">勾选任务后可批量暂停、继续、重试或删除</div>}
+
+      {touchSelecting && (
+        <ActionBar
+          actions={[
+            { key: 'pause', icon: Pause, label: '暂停', onClick: () => run(chosen, 'pause') },
+            { key: 'resume', icon: Play, label: '继续', onClick: () => run(chosen, 'resume') },
+            { key: 'retry', icon: RotateCw, label: '重试', disabled: !failedChosen.length, onClick: () => run(failedChosen, 'retry') },
+            { key: 'delete', icon: Trash2, label: '删除', danger: true, onClick: () => run(chosen, 'delete') },
+          ]}
+        />
+      )}
+
+      <BottomSheet
+        open={Boolean(sheetTask)}
+        onClose={() => setSheetTask(null)}
+        header={
+          sheetTask && (
+            <div className="mb-4 flex items-center gap-3 px-1">
+              <IconTile icon={taskIcon(sheetTask)} tone={DOWNLOAD_STATUS[sheetTask.status].tone} size={46} />
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 text-[15px] font-semibold break-all text-ink">{sheetTask.name}</div>
+                <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
+                  <Badge tone={DOWNLOAD_STATUS[sheetTask.status].tone}>{DOWNLOAD_STATUS[sheetTask.status].label}</Badge>
+                  {sheetTask.size > 0 && formatBytes(sheetTask.size)}
+                </div>
+              </div>
+            </div>
+          )
+        }
+      >
+        {sheetTask && (
+          <>
+            <SheetGroup>
+              {sheetPrimary && (
+                <SheetAction
+                  icon={<sheetPrimary.icon size={18} />}
+                  label={sheetPrimary.label}
+                  onClick={() => {
+                    setSheetTask(null)
+                    void run([sheetTask], sheetPrimary.action)
+                  }}
+                />
+              )}
+              <SheetAction
+                icon={<Info size={18} />}
+                label="任务详情"
+                onClick={() => {
+                  setSheetTask(null)
+                  setDetail(sheetTask)
+                }}
+              />
+              <SheetAction
+                icon={<CheckCheck size={18} />}
+                label="多选"
+                onClick={() => {
+                  setSheetTask(null)
+                  selection.toggle(sheetTask.id)
+                }}
+              />
+            </SheetGroup>
+            <SheetGroup>
+              <SheetAction
+                icon={<Trash2 size={18} />}
+                label="删除任务"
+                danger
+                onClick={() => {
+                  setSheetTask(null)
+                  confirmDelete([sheetTask])
+                }}
+              />
+            </SheetGroup>
+          </>
+        )}
+      </BottomSheet>
       <DownloadDetailModal task={detail} onClose={() => setDetail(null)} />
     </div>
   )

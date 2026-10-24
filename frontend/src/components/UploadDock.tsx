@@ -33,12 +33,12 @@ export default function UploadDock() {
   return (
     <div
       className={cx(
-        'neu-raised fixed z-50 overflow-hidden rounded-[24px]',
-        isMobile ? 'inset-x-3 bottom-[84px]' : 'right-6 bottom-6 w-[380px]',
+        'glass-card fixed z-50 overflow-hidden rounded-[24px]',
+        isMobile ? 'inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+84px)]' : 'right-6 bottom-6 w-[380px]',
       )}
     >
       <div className="flex items-center gap-3 p-3.5">
-        <div className="neu-inset-sm flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-accent">
+        <div className="tint flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-accent">
           {active.length > 0 ? <CloudUpload size={19} /> : failed.length ? <XCircle size={19} className="text-danger" /> : <CheckCircle2 size={19} className="text-success" />}
         </div>
         <div className="min-w-0 flex-1">

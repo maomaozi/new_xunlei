@@ -1,8 +1,8 @@
 # Xunlei Downloader Frontend
 
 React + TypeScript + Vite + Ant Design (zh-CN) + Tailwind CSS v4 + TanStack Query, with a
-neumorphic design system (`src/index.css`, `src/components/ui.tsx`), light/dark themes,
-responsive desktop/mobile layouts and a PWA manifest.
+neumorphic + frosted-glass design system (`src/index.css`, `src/components/ui.tsx`), light/dark themes,
+responsive desktop layout and a native-style phone layout (tab bar, action sheets, bottom-sheet dialogs) and a PWA manifest.
 
 ```bash
 bun install --frozen-lockfile

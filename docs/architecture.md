@@ -97,9 +97,18 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
 
 ## Frontend
 
-- `components/AppLayout.tsx`: desktop sidebar (collapsible) / mobile glass bottom tab bar
-  with a "more" sheet; `UploadDock` shows the browser → server leg of uploads.
+- `components/AppLayout.tsx`: desktop sidebar (collapsible, with a 新建 menu) / phone
+  floating glass tab bar (下载 · 云盘 · + · 云添加 · 我的). The center + opens a create sheet;
+  the dialogs it opens (new download, cloud add, browser upload) are global and exposed to
+  pages through `lib/createContext.ts`. Secondary pages (传输, 引擎, 分享, 动态, 回收站, 设置)
+  are reached from 我的 (`/`) on phones and show a back button in `PageHeader`.
+  `UploadDock` shows the browser → server leg of uploads.
+- Phone list pattern: tap a row for its action sheet (`BottomSheet`), long-press to enter
+  multi-select; selection swaps the tab bar for an `ActionBar`. Ant Design modals render as
+  bottom sheets below 768px (CSS in `src/index.css`).
 - Server state via TanStack Query; polling intervals come from settings and speed up only
   while there is activity.
-- Neumorphic design tokens in `src/index.css`; Ant Design is themed in
+- Neumorphic design tokens plus frosted glass (`glass`, `glass-card`), the `hero-gradient`
+  accent surface and tinted tiles (`tint`, `IconTile`) in `src/index.css`; `--accent-2` is a
+  companion hue derived from the configured accent. Ant Design is themed in
   `components/ThemedApp.tsx` and rendered into the `antd` CSS layer.
