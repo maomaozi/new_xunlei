@@ -107,7 +107,7 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   multi-select; selection swaps the tab bar for an `ActionBar`. Ant Design modals render as
   bottom sheets on phones (CSS in `src/index.css`). A phone is a viewport under 768px or a
   small touch screen (`device-width` < 600px); the Tailwind breakpoints are redefined so a
-  zoomed-out phone still gets the phone layout, and `ZoomHint` tells the user to reset zoom.
+  zoomed-out phone still gets the phone layout.
 - Server state via TanStack Query; polling intervals come from settings and speed up only
   while there is activity.
 - Neumorphic design tokens plus frosted glass (`glass`, `glass-card`), the `hero-gradient`
