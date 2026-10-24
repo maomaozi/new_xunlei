@@ -151,6 +151,13 @@ body {
   box-sizing: border-box;
 }
 
+/* Touch screens: no pinch or double-tap zoom of the whole page. */
+@media (hover: none) and (pointer: coarse) {
+  html {
+    touch-action: pan-x pan-y;
+  }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }

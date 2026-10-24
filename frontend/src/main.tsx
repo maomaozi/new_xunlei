@@ -7,6 +7,9 @@ import App from './App.tsx'
 import SettingsProvider from './components/SettingsProvider.tsx'
 import ThemedApp from './components/ThemedApp.tsx'
 import { isAuthError } from './lib/api'
+import { setupPhoneViewport } from './lib/viewport'
+
+setupPhoneViewport()
 
 const queryClient = new QueryClient({
   defaultOptions: {
