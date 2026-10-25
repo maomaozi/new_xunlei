@@ -120,3 +120,33 @@ The exact deletion-fix commit contents were also exported over `main` into a tem
 checkout, excluding unrelated pre-existing worktree changes. Backend Ruff lint/format,
 mypy and all 75 tests passed there; frontend lint, all 23 tests and production build passed.
 Post-restart polling confirmed list/live totals of 276 and HTTP 404 for all 17 deleted details.
+
+## 2026-10-25: unfinished-file cleanup
+
+A second reproduction used the movie task whose final `.mkv` path was absent while the exact
+`<filename>.mkv.xltd` sibling still contained unfinished data. Checking only the recorded final
+path had incorrectly treated physical cleanup as complete. Native task deletion does not
+substitute for application cleanup of that partial file.
+
+Engine cleanup now includes the exact `.xltd` sibling of each associated non-directory path.
+It uses no filename glob and no recursive directory deletion, and the existing root/symlink
+checks also apply to derived partial paths. Filenames containing brackets are covered.
+An explicit `delete_files=true` retry of an already retired task rechecks both local sources
+and performs cleanup without resubmitting a confirmed cloud deletion. Success clears any
+previous pending-cleanup message. Preserving files still preserves partial files as well.
+
+Regression coverage includes absent/present final files, partial cleanup after history reload,
+retries of previously confirmed deletions, failed local observations, unrelated siblings,
+symlinks outside the download roots, and partial files inside a multi-file task folder.
+Cleanup also protects paths referenced by another live task or native kernel mapping, so
+retrying an old deletion cannot remove a new download that reuses the same final filename.
+
+Validation: the current backend passed Ruff lint/format, mypy and all 103 tests. The exact
+cleanup-fix contents, exported over `main` without unrelated worktree changes, independently
+passed the same checks and all 82 backend tests. No frontend change was needed.
+
+Deployment/recovery: after backing up SQLite and the reported 12,487,960-byte partial file
+under ignored private backups, restarted the existing user service. Retried only the task
+whose persisted operation already requested file deletion, using the normal delete endpoint
+with `delete_files=true`. It returned confirmed with an empty message and no cleanup errors;
+both the final and exact partial paths are absent, and the private backup is retained.

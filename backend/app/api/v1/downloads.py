@@ -174,7 +174,9 @@ async def retry(body: DownloadIdsRequest, engine: EngineDep) -> DownloadCreateRe
         "mapping are absent. Passive native history is retired with a persisted fingerprint "
         "and reported by `local_history_retained`; the engine database is never edited. "
         "Late confirmation retires history automatically; pending file cleanup remains "
-        "retryable. Per-task results distinguish local removal, cloud sync, timeout and "
+        "retryable, including for already retired tasks. Cleanup includes the exact "
+        "<filename>.xltd partial sibling and never matches files by wildcard. "
+        "Per-task results distinguish local removal, cloud sync, timeout and "
         "partial file cleanup. Access: Public."
     ),
     responses=XUNLEI_ERRORS,

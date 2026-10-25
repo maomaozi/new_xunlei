@@ -23,6 +23,7 @@ from app.services.container import Container
 from app.services.engine.client import EngineClient
 from app.services.engine.local_db import LocalDatabaseError, LocalIdentity, LocalSnapshot
 from app.services.engine.process import EngineProcess
+from app.services.engine.tasks import cleanup_paths
 from app.services.engine.tokens import SECRET_FILE, SECRET_KEY
 
 
@@ -395,6 +396,125 @@ def test_native_batch_delete_uses_repeated_query_parameters(
     assert fake.disk == fake.memory == {}
 
 
+@pytest.mark.parametrize("completed", [False, True])
+def test_delete_cleans_exact_partial_sibling(
+    client: TestClient, runner: tuple[FakeRunner, Container], completed: bool
+) -> None:
+    fake, container = runner
+    fake.add("partial-file", mapped=False)
+    fake.retain_local_history = True
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    final = root / "movie[2007].mkv"
+    partial = root / (final.name + ".xltd")
+    unrelated = root / (final.name + ".xltd.keep")
+    if completed:
+        final.write_bytes(b"completed")
+    partial.write_bytes(b"unfinished")
+    unrelated.write_bytes(b"keep")
+    fake.disk["partial-file"]["FullPath"] = str(final)
+    result = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["partial-file"], "delete_files": True}
+    ).json()
+    assert result["ok"] and result["results"][0]["message"] == ""
+    assert not final.exists() and not partial.exists()
+    assert unrelated.read_bytes() == b"keep"
+
+
+@pytest.mark.parametrize("initial_cleanup", [False, True])
+def test_confirmed_delete_can_retry_partial_file_cleanup(
+    client: TestClient, runner: tuple[FakeRunner, Container], initial_cleanup: bool
+) -> None:
+    fake, container = runner
+    fake.add("cleanup-again", mapped=False)
+    fake.retain_local_history = True
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    final = root / "movie.mkv"
+    partial = root / "movie.mkv.xltd"
+    partial.write_bytes(b"unfinished")
+    fake.disk["cleanup-again"]["FullPath"] = str(final)
+    first = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["cleanup-again"], "delete_files": initial_cleanup}
+    ).json()
+    assert first["ok"]
+    if initial_cleanup:
+        # Reproduce a leftover from a deletion confirmed by an older backend version.
+        partial.write_bytes(b"legacy partial file")
+    assert partial.exists()
+    container.engine.tasks.identity = None
+    retried = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["cleanup-again"], "delete_files": True}
+    ).json()
+    assert retried["ok"] and not partial.exists()
+    assert retried["results"][0]["delete_files_requested"]
+    assert retried["results"][0]["message"] == ""
+    assert fake.deleted_batches == [["cleanup-again"]]
+    assert client.get("/api/v1/downloads").json()["tasks"] == []
+
+
+def test_cleanup_retry_requires_fresh_local_sources(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("unknown-cleanup", mapped=False)
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    final = root / "unknown.mkv"
+    partial = root / "unknown.mkv.xltd"
+    partial.write_bytes(b"keep until confirmed")
+    fake.disk["unknown-cleanup"]["FullPath"] = str(final)
+    assert client.post(
+        "/api/v1/downloads/delete", json={"ids": ["unknown-cleanup"], "delete_files": False}
+    ).json()["ok"]
+    fake.database_error = True
+    retried = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["unknown-cleanup"], "delete_files": True}
+    ).json()
+    assert not retried["ok"] and partial.exists()
+
+
+def test_partial_symlink_outside_download_roots_is_retained(tmp_path: Path) -> None:
+    root = tmp_path / "downloads"
+    root.mkdir()
+    final = root / "movie.mkv"
+    outside = tmp_path / "unrelated.bin"
+    outside.write_bytes(b"keep")
+    partial = root / "movie.mkv.xltd"
+    partial.symlink_to(outside)
+    errors = cleanup_paths([str(final)], [root])
+    assert errors and partial.is_symlink() and outside.read_bytes() == b"keep"
+
+
+def test_cleanup_retry_preserves_path_reused_by_another_live_task(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("old-download", mapped=False)
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    final = root / "reused.mkv"
+    partial = root / "reused.mkv.xltd"
+    partial.write_bytes(b"unfinished")
+    fake.disk["old-download"]["FullPath"] = str(final)
+    assert client.post(
+        "/api/v1/downloads/delete", json={"ids": ["old-download"], "delete_files": False}
+    ).json()["ok"]
+    fake.add("new-download")
+    fake.disk["new-download"]["FullPath"] = str(final)
+    result = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["old-download"], "delete_files": True}
+    ).json()
+    assert not result["ok"] and result["results"][0]["cleanup_errors"]
+    assert partial.read_bytes() == b"unfinished"
+    assert "new-download" in fake.memory
+    assert fake.deleted_batches == [["old-download"]]
+
+
 @pytest.mark.parametrize("delete_files", [False, True])
 def test_delete_settles_after_timeout_and_history_reload(
     client: TestClient,
@@ -592,6 +712,8 @@ def test_safe_multifile_cleanup_and_retry_partial(
     mine = folder / "mine.bin"
     other = folder / "unrelated.bin"
     mine.write_bytes(b"mine")
+    partial = folder / "mine.bin.xltd"
+    partial.write_bytes(b"unfinished")
     other.write_bytes(b"keep")
     fake.disk["bt"]["FullPath"] = str(folder)
     fake.files = [{"TaskId": "bt", "RealPath": str(mine)}]
@@ -601,6 +723,7 @@ def test_safe_multifile_cleanup_and_retry_partial(
     result = response["results"][0]
     assert result["status"] == "partial" and result["cleanup_errors"]
     assert not mine.exists() and other.read_bytes() == b"keep"
+    assert not partial.exists()
     assert not container.engine.tasks.history["bt"].deleted
     other.unlink()
     retried = client.post(

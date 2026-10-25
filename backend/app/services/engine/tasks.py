@@ -76,20 +76,34 @@ def observed_task_ids(raw: dict[str, Any] | None) -> set[str]:
     return ids
 
 
-def cleanup_paths(paths: list[str], roots: list[Path]) -> list[str]:
+def cleanup_paths(
+    paths: list[str], roots: list[Path], protected_paths: list[str] | None = None
+) -> list[str]:
     """Only unlink individually associated files; never recursively erase an inferred folder.
 
     Real paths are resolved before checking roots. A BT directory may contain unrelated data,
     so empty directories are removed with rmdir only. Failures remain on the history row.
     """
     bases = [root.resolve() for root in roots]
+    protected = [
+        Path(raw + suffix).resolve() for raw in protected_paths or [] for suffix in ("", ".xltd")
+    ]
     errors: list[str] = []
-    targets = sorted(set(paths), key=lambda value: len(Path(value).parts), reverse=True)
+    associated = set(paths)
+    for raw in paths:
+        # The task records the final name while unfinished data lives in <name>.xltd.
+        # Derive that exact sibling only; never glob or recurse through a task folder.
+        if not Path(raw).is_dir():
+            associated.add(raw + ".xltd")
+    targets = sorted(associated, key=lambda value: (len(Path(value).parts), value), reverse=True)
     for raw in targets:
         path = Path(raw)
         target = path.resolve()
         if not any(target != base and target.is_relative_to(base) for base in bases):
             errors.append(f"未删除不在下载目录内的路径：{path.name}")
+            continue
+        if any(target == active or target.is_relative_to(active) for active in protected):
+            errors.append(f"文件仍被其他下载任务使用：{path.name}")
             continue
         try:
             if path.is_symlink():
@@ -583,9 +597,16 @@ class RunnerTasks:
                 assert identity is not None
                 existing = self.history.get(tid)
                 if existing and existing.deleted and action == "delete":
-                    if existing.operation:
-                        return DownloadActionResult(task_id=tid, **existing.operation.model_dump())
-                    return DownloadActionResult(task_id=tid, action=action, status="confirmed")
+                    if not remove:
+                        if existing.operation:
+                            return DownloadActionResult(
+                                task_id=tid, **existing.operation.model_dump()
+                            )
+                        return DownloadActionResult(task_id=tid, action=action, status="confirmed")
+                    # An explicit cleanup retry must recheck local sources even if the task
+                    # was retired already; an earlier success may predate partial-file cleanup.
+                    existing.deleted = False
+                    self.collected_at = 0.0
                 task = await self.get(tid)
                 cleanup_retry = bool(
                     existing
@@ -720,6 +741,7 @@ class RunnerTasks:
                         if confirmed:
                             task = current or task
                             operation.status = "confirmed"
+                            operation.message = ""
                             operation.observed_status = task.status
                             operation.database_phase = (
                                 next(
@@ -750,8 +772,22 @@ class RunnerTasks:
                                         "本地任务已移除，云端记录保留，任务可能再次出现。",
                                     )
                                 if remove:
+                                    active_ids = observed_task_ids(self.live_raw) | {
+                                        str(row["TaskId"])
+                                        for row in (self.local.tasks if self.local else [])
+                                        if row.get("DLTaskId")
+                                    }
+                                    protected_paths = [
+                                        path
+                                        for other in active_ids - {tid}
+                                        if other in self.history
+                                        for path in self.history[other].paths
+                                    ]
                                     operation.cleanup_errors = await asyncio.to_thread(
-                                        cleanup_paths, paths, self.service.download_dirs
+                                        cleanup_paths,
+                                        paths,
+                                        self.service.download_dirs,
+                                        protected_paths,
                                     )
                                     if operation.cleanup_errors:
                                         operation.status, operation.message = (
