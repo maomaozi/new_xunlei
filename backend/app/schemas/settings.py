@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -20,11 +21,8 @@ class AccountSettings(SettingsSection):
         description="OAuth client id decrypted from detect.secret.yaml",
     )
     client_secret: str = Field(default="BlPF2z7HEeutzH4t6zyjLw", min_length=1)
-    scope: str = Field(default="pan user profile sso offline pan/xunlei/share/create")
     client_version: str = Field(default="3.23.3", description="Reported client version")
     package_name: str = Field(default="pan.xunlei.cli.synology")
-    auto_refresh: bool = Field(default=True, description="Refresh access token before it expires")
-    refresh_ahead_seconds: int = Field(default=300, ge=30, le=7200)
 
 
 class NetworkSettings(SettingsSection):
@@ -105,16 +103,31 @@ class OfflineSettings(SettingsSection):
     delete_files_with_task: bool = False
 
 
+EnginePlatform = Literal["qnap", "synology", "docker", "linux"]
+
+
+class RemoteDeviceSettings(SettingsSection):
+    device_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(default="", max_length=60)
+
+
 class EngineSettings(SettingsSection):
     """The bundled xunlei-pan-cli download engine (xldownloadlib + task runner)."""
 
     enabled: bool = Field(default=True, description="Run and supervise the engine process")
     binary_path: str = Field(default="", description="Empty uses <project>/engine")
     home_dir: str = Field(default="", description="Engine state directory; empty = <data>/engine")
-    platform: Literal["qnap", "synology", "docker"] = Field(
-        default="qnap", description="NAS platform identity whose privilege the account holds"
+    platform: EnginePlatform = Field(
+        default="qnap",
+        description="Engine platform identity, subject to account platform privileges",
     )
     nas_id: str = Field(default="123456", min_length=1, max_length=64)
+    device_space: str = Field(
+        default="", max_length=128, pattern=r"^(?:device_id#[A-Za-z0-9_-]+)?$"
+    )
+    remote_devices: list[RemoteDeviceSettings] = Field(default_factory=list, max_length=30)
+    webhook_url: str = Field(default="", max_length=2048)
+    webhook_modules: dict[str, list[str]] = Field(default_factory=dict, max_length=30)
     control_port: int = Field(default=5075, ge=1024, le=65533)
     public_port: int = Field(default=21607, ge=1024, le=65535)
     launcher_port: int = Field(default=5071, ge=1024, le=65535)
@@ -151,9 +164,28 @@ class EngineSettings(SettingsSection):
     @model_validator(mode="after")
     def distinct_ports(self) -> "EngineSettings":
         # control_port + 2 is taken by the engine's pprof server once debug logging is on.
-        ports = {self.control_port, self.public_port, self.launcher_port, self.control_port + 2}
-        if len(ports) != 4:
+        ports = [self.control_port, self.public_port, self.control_port + 2]
+        if self.platform in ("qnap", "synology"):
+            ports.append(self.launcher_port)
+        if len(set(ports)) != len(ports):
             raise ValueError("engine ports must be different")
+        ids = [device.device_id for device in self.remote_devices]
+        if len(set(ids)) != len(ids):
+            raise ValueError("remote device IDs must be unique")
+        if self.webhook_url:
+            parsed = urlsplit(self.webhook_url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                raise ValueError("webhook URL must be an HTTP(S) URL")
+            if any(char.isspace() for char in self.webhook_url):
+                raise ValueError("webhook URL cannot contain whitespace")
+            if not self.webhook_modules:
+                raise ValueError("webhook modules are required")
+        for module, functions in self.webhook_modules.items():
+            for name in [module, *functions]:
+                if not name or not all(c.isascii() and (c.isalnum() or c in "_.-") for c in name):
+                    raise ValueError("invalid webhook module or function")
+            if not functions:
+                raise ValueError("webhook functions are required")
         return self
 
 

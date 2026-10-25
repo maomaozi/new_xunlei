@@ -9,7 +9,6 @@ import {
   Crown,
   Download,
   HardDrive,
-  KeyRound,
   Magnet,
   QrCode,
   Server,
@@ -45,11 +44,6 @@ function greeting() {
 
 function Onboarding() {
   const navigate = useNavigate()
-  const options = [
-    { icon: QrCode, title: '扫码登录', text: '使用手机迅雷 App 扫码授权', to: '/settings/account?method=qr' },
-    { icon: KeyRound, title: '导入凭据', text: '导入 credentials.json 或 Token', to: '/settings/account?method=import' },
-    { icon: Server, title: '账号密码', text: '手机号 / 邮箱 + 密码登录', to: '/settings/account?method=password' },
-  ]
   return (
     <div className="mx-auto max-w-3xl py-6 md:py-14">
       <div className="mb-10 text-center">
@@ -59,21 +53,8 @@ function Onboarding() {
         <h2 className="m-0 text-2xl font-bold text-ink md:text-3xl">欢迎使用迅雷下载</h2>
         <p className="mt-3 text-[15px] text-ink-3">登录迅雷账号后即可在本机高速下载链接、种子与云盘文件，并管理云盘、云添加与分享。</p>
       </div>
-      <div className="stagger grid gap-5 sm:grid-cols-3">
-        {options.map((option) => (
-          <button
-            key={option.title}
-            type="button"
-            onClick={() => navigate(option.to)}
-            className="neu-press flex cursor-pointer flex-col items-center rounded-[28px] border-0 p-6 text-center"
-          >
-            <div className="neu-inset mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-accent">
-              <option.icon size={24} />
-            </div>
-            <div className="text-[15px] font-semibold text-ink">{option.title}</div>
-            <div className="mt-1.5 text-[12px] text-ink-3">{option.text}</div>
-          </button>
-        ))}
+      <div className="flex justify-center">
+        <PillButton primary icon={QrCode} onClick={() => navigate('/settings/account')}>扫码登录迅雷账号</PillButton>
       </div>
     </div>
   )

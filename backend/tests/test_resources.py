@@ -97,6 +97,17 @@ def _api(tmp_path: Path, handler: httpx.MockTransport) -> XunleiApi:
         )
     )
     api = XunleiApi(SettingsStore(SettingsRepository(db)), accounts)
+
+    async def engine_credentials() -> StoredCredentials:
+        return StoredCredentials(
+            access_token="token",
+            expires_at=time.time() + 3600,
+            user_id="42",
+            device_id="dev",
+            source="engine",
+        )
+
+    api.engine_credentials = engine_credentials
     api._client = httpx.AsyncClient(transport=handler)
     return api
 

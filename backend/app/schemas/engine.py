@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.settings import EnginePlatform
+
 EngineState = Literal["disabled", "missing_binary", "stopped", "starting", "running", "crashed"]
 
 
@@ -26,7 +28,21 @@ class ForeignEngine(BaseModel):
     home: str
 
 
+class EngineCapabilities(BaseModel):
+    platform: EnginePlatform = "qnap"
+    launcher: bool = True
+    local_config: bool = True
+    detailed_status: bool = True
+    touch_tasks: bool = True
+    storage: bool = True
+    device_spaces: bool = False
+    remote_devices: bool = False
+    webhook: bool = False
+
+
 class EngineStatus(BaseModel):
+    capabilities: EngineCapabilities = Field(default_factory=EngineCapabilities)
+    session_key: str = Field(default="", description="Opaque namespace/account cache identity")
     enabled: bool
     state: EngineState
     message: str = Field(description="Human readable reason for the state, if any")

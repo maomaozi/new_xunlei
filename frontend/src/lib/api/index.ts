@@ -3,6 +3,9 @@ import type {
   AccountOverview,
   AccountStatus,
   AppSettings,
+  EngineCapabilities,
+  StorageType,
+  StorageMount,
   Breadcrumb,
   Category,
   DriveFile,
@@ -11,7 +14,6 @@ import type {
   FileList,
   FsListing,
   OfflineCreateResult,
-  QrLoginStart,
   SettingsSection,
   ShareCreated,
   ShareItem,
@@ -45,20 +47,8 @@ export type PhaseFilter = 'all' | 'running' | 'complete' | 'error'
 export const accountApi = {
   status: () => http.get<AccountStatus>('/account'),
   overview: () => http.get<AccountOverview>('/account/overview'),
-  importJson: (body: Record<string, unknown>) => http.post<AccountStatus>('/account/import', body),
-  importFile: (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return http.form<AccountStatus>('/account/import/file', form)
-  },
   refresh: () => http.post<AccountStatus>('/account/refresh'),
   logout: () => http.post<Ok>('/account/logout'),
-  setDevice: (device_id: string) => http.put<AccountStatus>('/account/device', { device_id }),
-  startQr: () => http.post<QrLoginStart>('/account/qrcode'),
-  pollQr: (sessionId: string) =>
-    http.get<{ status: 'pending' | 'success' | 'expired' | 'denied' }>(`/account/qrcode/${sessionId}`),
-  password: (username: string, password: string) =>
-    http.post<AccountStatus>('/account/password', { username, password }),
 }
 
 export const filesApi = {
@@ -108,6 +98,15 @@ export const offlineApi = {
 type Created = { results: DownloadCreateResult[] }
 
 export const engineApi = {
+  capabilities: (platform?: AppSettings['engine']['platform']) => http.get<EngineCapabilities>('/engine/capabilities', { platform }),
+  storageTypes: () => http.get<{ types: StorageType[] }>('/engine/storage/types'),
+  storage: (page_token = '') => http.get<{ mounts: StorageMount[]; next_page_token: string }>('/engine/storage', { page_token }),
+  connectStorage: (type: string, config: Record<string, string>) => http.post<Ok>('/engine/storage', { type, config }),
+  updateStorage: (id: string, config: Record<string, string>) => http.put<Ok>(`/engine/storage/${encodeURIComponent(id)}`, { config }),
+  disconnectStorage: (id: string) => http.delete<Ok>(`/engine/storage/${encodeURIComponent(id)}`),
+  remoteTasks: (deviceId: string, page_token = '') => http.get<TaskList>(`/engine/devices/${encodeURIComponent(deviceId)}/tasks`, { page_token }),
+  remoteCreate: (deviceId: string, url: string, name = '') => http.post<DriveTask>(`/engine/devices/${encodeURIComponent(deviceId)}/tasks`, { url, name }),
+  remoteAction: (deviceId: string, taskId: string, action: 'pause' | 'resume' | 'delete') => http.post<{ confirmed: boolean; tasks: DriveTask[] }>(`/engine/devices/${encodeURIComponent(deviceId)}/tasks/${encodeURIComponent(taskId)}`, { action }),
   status: () => http.get<EngineStatus>('/engine'),
   start: () => http.post<EngineStatus>('/engine/start'),
   stop: () => http.post<EngineStatus>('/engine/stop'),

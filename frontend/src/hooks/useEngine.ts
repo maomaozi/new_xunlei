@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { downloadsApi, engineApi, type DownloadFilter, type LiveDownloads } from '../lib/api'
+import { downloadsApi, engineApi, type DownloadFilter, type LiveDownloads, type EngineSettings } from '../lib/api'
 import { filterDownloads, latestDownloadSnapshot } from '../lib/downloads'
 import { useAppSettings } from '../lib/settingsContext'
 
@@ -7,6 +7,16 @@ export function useEngineStatus(live = false) {
   return useQuery({
     queryKey: ['engine'], queryFn: engineApi.status,
     refetchInterval: (query) => (query.state.data?.state === 'starting' ? 1500 : live ? 3000 : 10000),
+  })
+}
+
+export function useEngineCapabilities(platform?: EngineSettings['platform']) {
+  const { settings } = useAppSettings()
+  const selected = platform ?? settings?.engine.platform
+  return useQuery({
+    queryKey: ['engine-capabilities', selected],
+    queryFn: () => engineApi.capabilities(selected),
+    enabled: Boolean(selected), retry: false, refetchInterval: 5000,
   })
 }
 

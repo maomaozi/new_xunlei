@@ -28,7 +28,7 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     "http_error": "请求无法完成，请检查请求后重试。",
     "invalid_request": "请求参数不正确，请检查后重试。",
     "internal_error": "服务暂时无法处理请求，请稍后重试。",
-    "auth_required": "尚未登录迅雷账号，请先在设置中登录或导入凭据。",
+    "auth_required": "尚未登录迅雷账号，请先在账号设置或引擎页扫码登录。",
     "auth_failed": "迅雷账号认证失败，请重新登录。",
     "xunlei_error": "迅雷服务返回错误。",
     "xunlei_unreachable": "无法连接迅雷服务器，请检查网络或网络设置后重试。",

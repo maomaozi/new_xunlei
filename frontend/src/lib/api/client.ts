@@ -33,6 +33,7 @@ export const http = {
   post: <T>(path: string, body?: unknown, query?: Query) => request<T>('POST', path, { body, query }),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body }),
+  delete: <T>(path: string) => request<T>('DELETE', path),
   form: <T>(path: string, form: FormData) => request<T>('POST', path, { form }),
 }
 

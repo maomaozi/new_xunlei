@@ -8,7 +8,7 @@ export default function LoginRequired({ description }: { description?: string })
     <EmptyState
       icon={KeyRound}
       title="尚未登录迅雷账号"
-      description={description ?? '扫码登录、账号密码登录或导入已有凭据后即可使用全部功能。'}
+      description={description ?? '使用手机迅雷 App 扫码登录，云盘与下载共用一个账号。'}
       action={
         <PillButton primary onClick={() => navigate('/settings/account')}>
           前往登录

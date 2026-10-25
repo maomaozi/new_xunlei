@@ -17,7 +17,14 @@ from fastapi.testclient import TestClient
 from app.schemas.xunlei import DriveTask
 from app.services.engine.client import EngineClient
 from app.services.engine.launcher import LauncherServer
-from app.services.engine.process import find_binary, host_arch, rotate_log, tail_log
+from app.services.engine.process import (
+    EngineProcess,
+    LaunchSpec,
+    find_binary,
+    host_arch,
+    rotate_log,
+    tail_log,
+)
 from app.services.engine.service import (
     SNAPSHOT_TTL,
     overlay,
@@ -96,6 +103,39 @@ def test_find_binary_prefers_configured_then_arch(tmp_path: Path) -> None:
     wanted.write_text("")
     assert find_binary("", [tmp_path / "missing", tmp_path]) == wanted
     assert find_binary(str(tmp_path / "nope"), [tmp_path]) is None
+
+
+def test_engine_launch_passes_platform_and_device_identity(tmp_path: Path) -> None:
+    binary = tmp_path / "fake-engine"
+    binary.write_text('#!/bin/sh\nprintf \'%s\\n\' "$PLATFORM" "$DeviceId"\n')
+    spec = LaunchSpec(
+        binary=binary,
+        home=tmp_path / "home",
+        platform="linux",
+        nas_id="test-nas",
+        control_port=15175,
+        public_port=31607,
+        launcher_port=15171,
+        download_dir=tmp_path / "downloads",
+        torrent_dir=tmp_path / "torrents",
+        device_id="isolated-test-device",
+        user_id="test-user",
+        client_id="test-client",
+        client_version="3.23.3",
+        log_max_bytes=1024,
+    )
+
+    async def run() -> None:
+        process = EngineProcess()
+        try:
+            await process.start(spec)
+            assert process._proc is not None
+            assert await asyncio.wait_for(process._proc.wait(), timeout=5) == 0
+        finally:
+            await process.stop(grace=1)
+
+    asyncio.run(run())
+    assert spec.log_path.read_text().splitlines() == ["linux", "isolated-test-device"]
 
 
 def test_task_mapping_and_indexes() -> None:

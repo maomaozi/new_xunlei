@@ -4,6 +4,8 @@ import { Cpu, Eraser, Gauge, HardDrive, LogIn, LogOut, Play, RefreshCw, Rocket, 
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import EngineLoginModal from '../components/EngineLoginModal'
+import StoragePanel from '../components/engine/StoragePanel'
+import RemoteDevicesPanel from '../components/engine/RemoteDevicesPanel'
 import PageHeader from '../components/PageHeader'
 import { Badge, Card, IconButton, PillButton, ProgressBar, SectionHeader } from '../components/ui'
 import { useEngineStatus } from '../hooks/useEngine'
@@ -112,13 +114,13 @@ function AccountCard({ status }: { status: EngineStatus }) {
   const logout = () =>
     modal.confirm({
       title: '退出下载引擎登录？',
-      content: '引擎退出后无法执行下载，需重新扫码登录。本站账号不受影响。',
+      content: '退出后云盘和下载引擎都需要重新扫码登录。已有下载任务会保留。',
       okText: '退出登录',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await engineApi.logout()
-          void queryClient.invalidateQueries({ queryKey: ['engine'] })
+          void queryClient.invalidateQueries()
         } catch (error) {
           message.error(errorMessage(error))
         }
@@ -142,23 +144,25 @@ function AccountCard({ status }: { status: EngineStatus }) {
       ) : (
         <div className="text-[13px] leading-relaxed text-ink-3">
           {loginKnown
-            ? '引擎使用独立的迅雷会话（迅雷的 Refresh Token 会轮换，与本站共用会互相挤掉），扫码登录一次后由引擎自动续期。'
+            ? '云盘与下载共用引擎账号，扫码登录一次后由引擎自动续期。'
             : '当前平台无法提供账号状态，无法确认是否已登录。引擎运行情况请查看进程状态、下载任务与日志。'}
         </div>
       )}
       {status.user_mismatch && (
         <div className="mt-3 flex gap-2 text-[12px] text-warning">
           <TriangleAlert size={15} className="shrink-0" />
-          引擎账号与本站账号不同，下载列表按本站账号查询，请使用同一账号登录。
+          账号状态正在同步，请稍后刷新。
         </div>
       )}
       <div className="mt-4 flex flex-wrap gap-2.5">
-        <PillButton primary={!status.logged_in} icon={LogIn} disabled={!running} onClick={() => setLogin(true)}>
-          {status.logged_in ? '切换账号' : '扫码登录'}
-        </PillButton>
+        {!status.logged_in && (
+          <PillButton primary icon={LogIn} disabled={!running} onClick={() => setLogin(true)}>
+            扫码登录
+          </PillButton>
+        )}
         {status.logged_in && (
           <PillButton icon={LogOut} onClick={logout}>
-            退出登录
+            退出登录 / 切换账号
           </PillButton>
         )}
       </div>
@@ -318,6 +322,8 @@ export default function EnginePage() {
             </div>
           </div>
           {status.state === 'running' && status.logged_in && <TrialCard />}
+          {status.state === 'running' && status.capabilities?.storage && <StoragePanel key={`storage:${status.session_key}`} scope={`${status.capabilities.platform}:${status.home_dir}:${status.device_id}:${status.user.id}:${status.session_key}`} />}
+          {status.state === 'running' && status.capabilities?.remote_devices && <RemoteDevicesPanel key={`remote:${status.session_key}`} scope={`${status.capabilities.platform}:${status.home_dir}:${status.device_id}:${status.user.id}:${status.session_key}`} />}
           <LogsCard />
         </div>
       )}

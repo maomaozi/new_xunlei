@@ -9,7 +9,7 @@ import json
 import socket
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.errors import AppError
+from app.repositories.account import StoredCredentials
 from app.schemas.xunlei import DriveFile, DriveTask
 from app.services.container import Container
 from app.services.engine.client import EngineClient
@@ -191,6 +192,18 @@ def runner(
     engine = container.engine
     container.api.credentials.user_id = "test-user"
     fake = FakeRunner()
+
+    async def engine_credentials() -> StoredCredentials:
+        if not fake.alive:
+            raise AppError("engine_unavailable", 503)
+        return replace(
+            container.api.credentials,
+            access_token="runner-access",
+            expires_at=time.time() + 3600,
+            source="engine",
+        )
+
+    container.api.engine_credentials = engine_credentials
     monkeypatch.setattr(EngineProcess, "alive", property(lambda _: fake.alive))
     monkeypatch.setattr("app.services.engine.tasks.read_snapshot", fake.read)
     monkeypatch.setattr(engine, "_engine_tasks", fake.list_cloud)

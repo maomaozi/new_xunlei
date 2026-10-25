@@ -1,22 +1,15 @@
 import asyncio
-import json
-import logging
+import contextlib
 import time
 
-from fastapi import APIRouter, UploadFile
-from pydantic import ValidationError
+from fastapi import APIRouter
 
-from app.api.deps import ApiDep
+from app.api.deps import ApiDep, EngineDep
 from app.api.responses import XUNLEI_ERRORS, errors
 from app.core.errors import AppError
 from app.schemas.account import (
     AccountOverview,
     AccountStatus,
-    DeviceIdRequest,
-    ImportCredentialsRequest,
-    PasswordLoginRequest,
-    QrLoginPoll,
-    QrLoginStart,
     UserProfile,
     VipInfo,
 )
@@ -24,7 +17,6 @@ from app.schemas.common import OkResponse
 from app.services.xunlei.api import XunleiApi
 from app.services.xunlei.http import JsonObject
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/account", tags=["account"])
 
 VAS_LABELS = {"5": "超级会员", "3": "白金会员", "2": "白金会员", "1": "普通会员"}
@@ -79,10 +71,15 @@ def to_profile(data: JsonObject) -> UserProfile:
 @router.get(
     "",
     response_model=AccountStatus,
-    summary="Get stored credential status",
-    description="Local credential state only; does not contact Xunlei. Access: Public.",
+    summary="Get shared engine credential status",
+    description=(
+        "Credential state; engine sessions are read from the local engine without contacting "
+        "Xunlei. Access: Public."
+    ),
 )
 async def get_status(api: ApiDep) -> AccountStatus:
+    with contextlib.suppress(AppError):
+        await api.sync_engine_credentials()
     return account_status(api)
 
 
@@ -97,6 +94,8 @@ async def get_status(api: ApiDep) -> AccountStatus:
     responses=XUNLEI_ERRORS,
 )
 async def overview(api: ApiDep) -> AccountOverview:
+    with contextlib.suppress(AppError):
+        await api.sync_engine_credentials()
     status = account_status(api)
     if not status.logged_in:
         return AccountOverview(status=status)
@@ -105,134 +104,28 @@ async def overview(api: ApiDep) -> AccountOverview:
 
 
 @router.post(
-    "/import",
-    response_model=AccountStatus,
-    summary="Import credentials JSON",
-    description=(
-        "Imports the project's `credentials.json` (access_token, refresh_token, expires_at, "
-        "user_id, device_id) or a raw OAuth token response. Access: Public."
-    ),
-    responses=errors(422),
-)
-async def import_credentials(body: ImportCredentialsRequest, api: ApiDep) -> AccountStatus:
-    _apply_import(api, body, "import")
-    return account_status(api)
-
-
-@router.post(
-    "/import/file",
-    response_model=AccountStatus,
-    summary="Import credentials file",
-    description="Multipart upload of a credentials.json file. Access: Public.",
-    responses=errors(400, 422),
-)
-async def import_credentials_file(file: UploadFile, api: ApiDep) -> AccountStatus:
-    raw = await file.read(1024 * 1024)
-    try:
-        body = ImportCredentialsRequest.model_validate(json.loads(raw))
-    except (ValueError, ValidationError) as error:
-        raise AppError(
-            "invalid_request", 400, "凭据文件格式不正确，需要包含 access_token 或 refresh_token。"
-        ) from error
-    _apply_import(api, body, "import-file")
-    return account_status(api)
-
-
-def _apply_import(api: XunleiApi, body: ImportCredentialsRequest, source: str) -> None:
-    if body.expires_at:
-        expires_at = body.expires_at
-    elif body.expires_in:
-        expires_at = time.time() + body.expires_in
-    else:
-        expires_at = 0  # Unknown: force a refresh before first use.
-    api.import_credentials(
-        access_token=body.access_token,
-        refresh_token=body.refresh_token,
-        expires_at=expires_at,
-        user_id=body.user_id or body.sub,
-        device_id=body.device_id or None,
-        source=source,
-    )
-    logger.info("Imported Xunlei credentials (source=%s)", source)
-
-
-@router.post(
     "/refresh",
     response_model=AccountStatus,
-    summary="Refresh access token",
-    description="Exchanges the refresh token at `POST /v1/auth/token`. Access: Public.",
-    responses=XUNLEI_ERRORS,
+    summary="Read the engine's current session",
+    description=(
+        "Re-reads the local engine's access token; never refreshes OAuth tokens. Access: Public."
+    ),
+    responses=errors(401, 503),
 )
 async def refresh(api: ApiDep) -> AccountStatus:
-    await api.refresh_token()
+    await api.sync_engine_credentials()
     return account_status(api)
 
 
 @router.post(
     "/logout",
     response_model=OkResponse,
-    summary="Forget stored tokens",
-    description="Removes local tokens; the device id is kept. Access: Public.",
+    summary="Sign out of Xunlei",
+    description=(
+        "Signs out the engine and clears the backend's in-memory access token. Access: Public."
+    ),
+    responses=errors(502, 503),
 )
-async def logout(api: ApiDep) -> OkResponse:
-    api.logout()
+async def logout(engine: EngineDep) -> OkResponse:
+    await engine.logout()
     return OkResponse()
-
-
-@router.put(
-    "/device",
-    response_model=AccountStatus,
-    summary="Set device id",
-    description=(
-        "Sets the X-Device-Id. Reuse the id of the device the imported tokens belong to. "
-        "Access: Public."
-    ),
-    responses=errors(422),
-)
-async def set_device(body: DeviceIdRequest, api: ApiDep) -> AccountStatus:
-    api.set_device_id(body.device_id)
-    return account_status(api)
-
-
-@router.post(
-    "/qrcode",
-    response_model=QrLoginStart,
-    summary="Start QR code login",
-    description="OAuth2 device code flow (`POST /v1/auth/device/code`). Access: Public.",
-    responses=XUNLEI_ERRORS,
-)
-async def start_qr(api: ApiDep) -> QrLoginStart:
-    session_id, session = await api.start_device_login()
-    return QrLoginStart(
-        session_id=session_id,
-        verification_url=session.verification_url,
-        user_code=session.user_code,
-        expires_in=max(0, int(session.expires_at - time.time())),
-        interval=session.interval,
-    )
-
-
-@router.get(
-    "/qrcode/{session_id}",
-    response_model=QrLoginPoll,
-    summary="Poll QR code login",
-    description="Polls the device code once; stores tokens on success. Access: Public.",
-    responses={**XUNLEI_ERRORS, **errors(404)},
-)
-async def poll_qr(session_id: str, api: ApiDep) -> QrLoginPoll:
-    return QrLoginPoll(status=await api.poll_device_login(session_id))
-
-
-@router.post(
-    "/password",
-    response_model=AccountStatus,
-    summary="Login with password",
-    description=(
-        "Captcha init followed by `POST /v1/auth/signin`. Xunlei may require an interactive "
-        "captcha, in which case QR login or import is needed. Access: Public."
-    ),
-    responses=XUNLEI_ERRORS,
-)
-async def password_login(body: PasswordLoginRequest, api: ApiDep) -> AccountStatus:
-    await api.password_login(body.username, body.password)
-    return account_status(api)

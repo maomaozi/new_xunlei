@@ -68,15 +68,15 @@ export default function EngineBanner({ status }: { status: EngineStatus | undefi
     )
   } else if (!status.logged_in) {
     title = '下载引擎尚未登录'
-    detail = '引擎使用独立的迅雷会话，扫码登录一次后会自动续期。'
+    detail = '云盘与下载共用引擎账号，扫码登录一次后会自动续期。'
     action = (
       <PillButton primary icon={LogIn} onClick={() => setLogin(true)}>
         扫码登录
       </PillButton>
     )
   } else if (status.user_mismatch) {
-    title = '引擎登录的账号与本站账号不同'
-    detail = `引擎账号：${status.user.name || status.user.id}。下载任务按本站账号查询，请让两者使用同一账号。`
+    title = '账号状态正在同步'
+    detail = `引擎账号：${status.user.name || status.user.id}。请刷新页面同步账号状态。`
     action = (
       <PillButton icon={LogIn} onClick={() => setLogin(true)}>
         重新登录引擎

@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run --passWithNoTests",
     "test:e2e:runner": "bun scripts/runner-e2e.mjs",
+    "test:e2e:platforms": "bun scripts/engine-platforms-e2e.mjs",
     "test:watch": "vitest",
     "preview": "vite preview"
   },

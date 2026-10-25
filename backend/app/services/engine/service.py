@@ -6,14 +6,16 @@ Task creation uses the Runner loopback proxy (`POST /drive/v1/task`); its upstre
 cloud dependency remains. Local database and debug snapshots drive the shared inventory;
 cloud data is optional enrichment. See `tasks.py` for confirmed lifecycle operations.
 
-The engine signs in with its own QR login so its refresh-token chain stays independent of
-this app's (Xunlei rotates refresh tokens, two holders of one chain would log each other out).
+The engine owns its refresh-token chain. The app may borrow its current access token through
+InnerWeb without refreshing that chain itself.
 """
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
+import math
 import re
 import shutil
 import time
@@ -22,6 +24,7 @@ from typing import Literal
 
 from app.core.config import BACKEND_DIR
 from app.core.errors import AppError
+from app.repositories.account import StoredCredentials
 from app.schemas.engine import (
     DownloadActionResponse,
     DownloadCreateResponse,
@@ -29,6 +32,7 @@ from app.schemas.engine import (
     DownloadList,
     DownloadSummary,
     DownloadTask,
+    EngineCapabilities,
     EngineDisk,
     EngineFolder,
     EngineFolderList,
@@ -43,10 +47,12 @@ from app.schemas.engine import (
     SpeedupState,
     TrialInfo,
 )
-from app.schemas.settings import AppSettings, EngineSettings
+from app.schemas.settings import AppSettings, EnginePlatform, EngineSettings
 from app.schemas.xunlei import DriveTask
 from app.services.engine.client import EngineClient, EngineRouteUnavailable, JsonObject
+from app.services.engine.extensions import EngineExtensions
 from app.services.engine.launcher import LauncherServer
+from app.services.engine.platforms import platform_capabilities
 from app.services.engine.process import (
     EngineProcess,
     LaunchSpec,
@@ -297,6 +303,7 @@ class EngineService:
         self._health_at = 0.0
         self._status_supported = True
         self._config_supported = True
+        self._storage_supported = True
         self._status_error = ""
         self._health_error = ""
         self._config_error = ""
@@ -313,6 +320,8 @@ class EngineService:
         self._enabled = settings.current.engine.enabled
         settings.subscribe(self._on_settings_changed)
         self.tasks = RunnerTasks(self)
+        self.extensions = EngineExtensions(self)
+        api.engine_credentials = self.access_credentials
 
     # ------------------------------------------------------------------ settings
 
@@ -323,7 +332,24 @@ class EngineService:
     @property
     def home(self) -> Path:
         configured = self.config.home_dir.strip()
-        return Path(configured).expanduser() if configured else self.data_dir / "engine"
+        root = Path(configured).expanduser() if configured else self.data_dir / "engine"
+        if self.config.platform == "linux" and self.config.device_space:
+            namespace = hashlib.sha256(self.config.device_space.encode()).hexdigest()[:24]
+            return root / "spaces" / namespace
+        return root
+
+    def capabilities(self, platform: EnginePlatform | None = None) -> EngineCapabilities:
+        profile = platform_capabilities(platform or self.config.platform)
+        running = self.process.spec
+        if running and running.platform == profile.platform and running.home == self.home:
+            profile.local_config = profile.local_config and self._config_supported
+            profile.detailed_status = profile.detailed_status and self._status_supported
+            profile.storage = profile.storage and self._storage_supported
+        return profile
+
+    async def ensure_launcher(self) -> None:
+        if self.capabilities().launcher:
+            await self.launcher.start(self.config.launcher_port)
 
     @property
     def download_dirs(self) -> list[Path]:
@@ -344,6 +370,8 @@ class EngineService:
             raise AppError("engine_binary_missing", 409)
         cfg = self.config
         creds = self.api.credentials
+        running = self.process.spec
+        shared = creds.source == "engine" and running is not None and running.home == self.home
         torrent = cfg.torrent_dir.strip()
         return LaunchSpec(
             binary=binary,
@@ -355,11 +383,24 @@ class EngineService:
             launcher_port=cfg.launcher_port,
             download_dir=self.download_dirs[0],
             torrent_dir=Path(torrent).expanduser() if torrent else self.home / "torrents",
-            device_id=creds.device_id,
-            user_id=creds.user_id,
+            device_id=(
+                cfg.device_space.removeprefix("device_id#")
+                if cfg.platform == "linux" and cfg.device_space
+                else running.device_id
+                if shared and running
+                else creds.device_id
+            ),
+            user_id=running.user_id if shared and running else creds.user_id,
             client_id=self.api.config.account.client_id,
             client_version=self.api.config.account.client_version,
             log_max_bytes=cfg.log_max_mb * 1024 * 1024,
+            device_space=cfg.device_space if cfg.platform == "linux" else "",
+            webhook_url=cfg.webhook_url if cfg.platform == "linux" else "",
+            webhook_modules=(
+                tuple((key, tuple(value)) for key, value in sorted(cfg.webhook_modules.items()))
+                if cfg.platform == "linux"
+                else ()
+            ),
         )
 
     def _on_settings_changed(self, value: AppSettings) -> None:
@@ -414,7 +455,10 @@ class EngineService:
 
     async def _launch(self) -> None:
         spec = self.spec()
-        await self.launcher.start(spec.launcher_port)
+        if platform_capabilities(self.config.platform).launcher:
+            await self.launcher.start(spec.launcher_port)
+        else:
+            await self.launcher.stop()
         if not self.process.alive and not self.process.adopt(spec):
             await self.process.start(spec)
         self._applied = None
@@ -422,8 +466,10 @@ class EngineService:
         self._snapshot = {}
         self._snapshot_at = 0.0
         self._health_at = 0.0
-        self._status_supported = True
-        self._config_supported = True
+        profile = platform_capabilities(self.config.platform)
+        self._status_supported = profile.detailed_status
+        self._config_supported = profile.local_config
+        self._storage_supported = True
         self._status_error = ""
         self._health_error = ""
         self._config_error = ""
@@ -496,6 +542,9 @@ class EngineService:
             return
         await asyncio.to_thread(rotate_log, self.home / "engine.log", cfg.log_max_mb * 1024 * 1024)
         await self._refresh()
+        if self._ready():
+            with contextlib.suppress(AppError):
+                await self.api.sync_engine_credentials()
         if self._ready() and self._config_supported and self._applied != self._config_signature():
             try:
                 await self._apply_config()
@@ -618,8 +667,19 @@ class EngineService:
             if isinstance(d, dict)
         ]
         binary = self.binary()
-        app_user = self.api.credentials.user_id
         return EngineStatus(
+            capabilities=self.capabilities(),
+            session_key=hashlib.sha256(
+                str(
+                    (
+                        self.home,
+                        self.config.platform,
+                        self.api.device_id,
+                        self.api.credentials.user_id,
+                        self.api._auth_epoch,
+                    )
+                ).encode()
+            ).hexdigest()[:24],
             enabled=self.config.enabled,
             state=state,
             message=message,
@@ -638,7 +698,7 @@ class EngineService:
             login_status_known=isinstance(auth, dict) and "status" in auth,
             logged_in=login == "complete" and bool(user.id),
             user=user,
-            user_mismatch=bool(user.id and app_user and user.id != app_user),
+            user_mismatch=False,
             runner_status=str(runner.get("status") or "") if isinstance(runner, dict) else "",
             runner_message=runner_message,
             running_tasks=self._running_tasks,
@@ -661,6 +721,39 @@ class EngineService:
 
     # --------------------------------------------------------------------- login
 
+    async def access_credentials(self) -> StoredCredentials:
+        if not self.config.enabled:
+            raise AppError("engine_unavailable", 503)
+        home, port, pid = self.home, self.config.public_port, self.process.pid
+        client = self.require_running()
+        data = await client.access_credentials(port)
+        try:
+            info = await asyncio.to_thread((home / "info.file").read_text)
+            identity = json.loads(info)
+            device_id = str(identity.get("device_id") or "")
+            expires_at = float(data.get("expire_at") or 0)
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            raise AppError("engine_unavailable", 503, "无法读取下载引擎的设备身份。") from error
+        token = str(data.get("access_token") or "")
+        user_id = str(data.get("user_id") or "")
+        if (home, port, pid) != (self.home, self.config.public_port, self.process.pid):
+            raise AppError("engine_unavailable", 503)
+        if not self.process.alive:
+            raise AppError("engine_unavailable", 503)
+        if not token or not user_id or not math.isfinite(expires_at) or expires_at <= time.time():
+            raise AppError(
+                "auth_required", 401, "下载引擎尚未登录或会话已过期，请在引擎页扫码登录。"
+            )
+        if not device_id:
+            raise AppError("engine_unavailable", 503, "下载引擎的设备身份为空。")
+        return StoredCredentials(
+            access_token=token,
+            expires_at=expires_at,
+            user_id=user_id,
+            device_id=device_id,
+            source="engine",
+        )
+
     async def login_qrcode(self) -> bytes:
         return await self.require_running().qr_image()
 
@@ -668,6 +761,7 @@ class EngineService:
         status = str((await self.require_running().qr_status()).get("status") or "")
         if status == "complete":
             await self._refresh()
+            await self.api.sync_engine_credentials()
         return EngineLoginStatus(status=status, logged_in=status == "complete")
 
     async def login_url(self) -> str:
@@ -675,6 +769,7 @@ class EngineService:
 
     async def logout(self) -> None:
         await self.require_running().signout()
+        self.api.clear_credentials()
         await self._refresh()
 
     # --------------------------------------------------------------------- trial

@@ -75,6 +75,9 @@ class LaunchSpec:
     client_id: str
     client_version: str
     log_max_bytes: int
+    device_space: str = ""
+    webhook_url: str = ""
+    webhook_modules: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def log_path(self) -> Path:
@@ -105,6 +108,7 @@ class LaunchSpec:
             {
                 "ALLOW_CUSTOM_PLATFORM": "true",
                 "PLATFORM": self.platform,
+                "DeviceId": self.device_id,
                 "NAS_ID": self.nas_id,
                 "HOME": str(self.home),
                 "DownloadPATH": str(self.download_dir),
@@ -115,6 +119,16 @@ class LaunchSpec:
                 "DriveLogLevel": "debug",
             }
         )
+        if self.platform in ("linux", "docker"):
+            env.pop("LauncherAddress", None)
+        if self.platform == "linux":
+            if self.device_space:
+                env["DeviceSpace"] = self.device_space
+            if self.webhook_url and self.webhook_modules:
+                modules = ";".join(
+                    f"{module}:{','.join(functions)}" for module, functions in self.webhook_modules
+                )
+                env["Webhook"] = f"{modules} {self.webhook_url}"
         return env
 
 

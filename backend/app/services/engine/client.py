@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from app.core.errors import AppError
+from app.services.engine.auth import read_access_token
 from app.services.engine.tokens import (
     LOCAL_SCOPE,
     UI_SCOPE,
@@ -201,6 +202,9 @@ class EngineClient:
 
     async def signout(self) -> None:
         await self.call("POST", "/auth/signout")
+
+    async def access_credentials(self, public_port: int) -> JsonObject:
+        return await read_access_token(self._http, public_port)
 
     async def trial_info(self) -> JsonObject:
         data = await self.call("GET", "/device/v1/try_speed/get_info", limit=10)

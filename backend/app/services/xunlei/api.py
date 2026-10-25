@@ -7,11 +7,10 @@ reversing xunlei-pan-cli 3.23.3; see the repository's progress.md and USAGE.md.
 import asyncio
 import json
 import logging
-import secrets
 import time
 import uuid
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Literal
 
@@ -76,27 +75,23 @@ def _close_later(client: httpx.AsyncClient) -> None:
     task.add_done_callback(_closing.discard)
 
 
-@dataclass
-class DeviceCodeSession:
-    device_code: str
-    user_code: str
-    verification_url: str
-    expires_at: float
-    interval: int
-
-
 class XunleiApi:
     def __init__(self, settings: SettingsStore, accounts: AccountRepository) -> None:
         self._settings = settings
         self._accounts = accounts
-        self._creds = accounts.load()
-        if not self._creds.device_id:
-            self._creds.device_id = uuid.uuid4().hex
-            self._accounts.save(self._creds)
+        previous = accounts.load()
+        self._creds = StoredCredentials(
+            device_id=previous.device_id or uuid.uuid4().hex,
+            user_id=previous.user_id,
+            source="engine",
+        )
+        # Independent app sessions are retired; the engine owns all token material.
+        self._accounts.save(self._creds)
         self._client = build_client(settings.current.network)
         self._transfer_client = build_client(settings.current.network, keepalive=False)
         self._token_lock = asyncio.Lock()
-        self._device_sessions: dict[str, DeviceCodeSession] = {}
+        self._auth_epoch = 0
+        self.engine_credentials: Callable[[], Awaitable[StoredCredentials]] | None = None
         # (action, device_id, user_id) -> (captcha_token, expires_at)
         self._captcha_tokens: dict[tuple[str, str, str], tuple[str, float]] = {}
         settings.subscribe(self._on_settings_changed)
@@ -145,83 +140,47 @@ class XunleiApi:
     @property
     def device_space(self) -> str:
         """Task space of the local engine, which runs under this account's device id."""
+        engine = self.config.engine
+        if engine.platform == "linux" and engine.device_space:
+            return engine.device_space
         return f"device_id#{self._creds.device_id}"
 
     @property
     def has_credentials(self) -> bool:
         return bool(self._creds.access_token or self._creds.refresh_token)
 
-    def import_credentials(
-        self,
-        *,
-        access_token: str,
-        refresh_token: str,
-        expires_at: float,
-        user_id: str,
-        device_id: str | None,
-        source: str,
-    ) -> StoredCredentials:
-        self._creds = StoredCredentials(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            expires_at=expires_at,
-            user_id=user_id,
-            device_id=device_id or self._creds.device_id,
-            source=source,
-        )
-        return self._accounts.save(self._creds)
+    async def sync_engine_credentials(self) -> None:
+        if self.engine_credentials is None:
+            raise AppError("engine_unavailable", 503)
+        async with self._token_lock:
+            previous = self._creds
+            epoch = self._auth_epoch
+            try:
+                credentials = await self.engine_credentials()
+            except AppError:
+                if self._auth_epoch == epoch:
+                    self.clear_credentials()
+                raise
+            if self._auth_epoch != epoch:
+                raise AppError("auth_required", 401)
+            if (previous.user_id, previous.device_id) != (
+                credentials.user_id,
+                credentials.device_id,
+            ):
+                self._captcha_tokens.clear()
+                saved = self._accounts.save(replace(credentials, access_token="", refresh_token=""))
+                credentials.updated_at = saved.updated_at
+            else:
+                credentials.updated_at = previous.updated_at
+            self._creds = credentials
 
-    def set_device_id(self, device_id: str) -> StoredCredentials:
-        self._creds.device_id = device_id
-        return self._accounts.save(self._creds)
+    def clear_credentials(self) -> None:
+        self._auth_epoch += 1
+        self._creds = replace(self._creds, access_token="", refresh_token="", expires_at=0)
+        self._captcha_tokens.clear()
 
-    def logout(self) -> None:
-        self._creds = StoredCredentials(device_id=self._creds.device_id)
-        self._accounts.save(self._creds)
-
-    def _store_token_response(self, data: JsonObject, source: str) -> StoredCredentials:
-        access = str(data.get("access_token") or "")
-        if not access:
-            raise AppError("auth_failed", 401, str(data.get("error_description") or "") or None)
-        return self.import_credentials(
-            access_token=access,
-            refresh_token=str(data.get("refresh_token") or self._creds.refresh_token),
-            expires_at=time.time() + float(data.get("expires_in") or 7200),
-            user_id=str(data.get("user_id") or data.get("sub") or self._creds.user_id),
-            device_id=self._creds.device_id,
-            source=source,
-        )
-
-    async def refresh_token(self) -> StoredCredentials:
-        if not self._creds.refresh_token:
-            raise AppError("auth_required", 401)
-        account = self.config.account
-        data = await self._auth_call(
-            "POST",
-            "/v1/auth/token",
-            json={
-                "client_id": account.client_id,
-                "client_secret": account.client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": self._creds.refresh_token,
-            },
-        )
-        logger.info("Xunlei access token refreshed")
-        return self._store_token_response(data, self._creds.source or "refresh")
-
-    async def _access_token(self, force_refresh: bool = False) -> str:
-        creds = self._creds
-        if not creds.access_token and not creds.refresh_token:
-            raise AppError("auth_required", 401)
-        ahead = self.config.account.refresh_ahead_seconds
-        expiring = time.time() >= creds.expires_at - ahead
-        if force_refresh or (expiring and creds.refresh_token and self.config.account.auto_refresh):
-            async with self._token_lock:
-                # Another request may have refreshed while we waited for the lock.
-                if self._creds is creds or force_refresh:
-                    await self.refresh_token()
-        elif time.time() >= creds.expires_at and not creds.refresh_token:
-            raise AppError("auth_required", 401)
+    async def _access_token(self) -> str:
+        await self.sync_engine_credentials()
         return self._creds.access_token
 
     # -------------------------------------------------------------------- transport
@@ -238,20 +197,26 @@ class XunleiApi:
         params: Mapping[str, str] | None = None,
         bearer: bool = False,
     ) -> JsonObject:
-        headers = self._base_headers()
-        if bearer:
-            headers["Authorization"] = f"Bearer {await self._access_token()}"
         network = self.config.network
-        response = await send_with_retry(
-            self._client,
-            network,
-            method,
-            f"{network.auth_host}{path}",
-            json=json,
-            params=params,
-            headers=headers,
-        )
-        return decode_json(response)
+        for attempt in range(2 if bearer else 1):
+            token = await self._access_token() if bearer else ""
+            headers = self._base_headers()
+            if bearer:
+                headers["Authorization"] = f"Bearer {token}"
+            response = await send_with_retry(
+                self._client,
+                network,
+                method,
+                f"{network.auth_host}{path}",
+                json=json,
+                params=params,
+                headers=headers,
+            )
+            if bearer and response.status_code == 401 and attempt == 0:
+                await response.aclose()
+                continue
+            return decode_json(response)
+        raise AppError("auth_failed", 401)
 
     async def pan(
         self,
@@ -264,7 +229,7 @@ class XunleiApi:
     ) -> JsonObject:
         network = self.config.network
         for attempt in range(2):
-            token = await self._access_token(force_refresh=attempt > 0)
+            token = await self._access_token()
             response = await send_with_retry(
                 self._client,
                 network,
@@ -278,117 +243,15 @@ class XunleiApi:
                     **(headers or {}),
                 },
             )
-            if response.status_code == 401 and attempt == 0 and self._creds.refresh_token:
+            if response.status_code == 401 and attempt == 0:
                 await response.aclose()
                 continue
             return decode_json(response)
         raise AppError("auth_failed", 401)
 
-    # ------------------------------------------------------------------- auth flows
-
-    async def start_device_login(self) -> tuple[str, DeviceCodeSession]:
-        account = self.config.account
-        data = await self._auth_call(
-            "POST",
-            "/v1/auth/device/code",
-            json={
-                "client_id": account.client_id,
-                "client_secret": account.client_secret,
-                "scope": account.scope,
-            },
-        )
-        session = DeviceCodeSession(
-            device_code=str(data["device_code"]),
-            user_code=str(data.get("user_code", "")),
-            verification_url=str(
-                data.get("short_uri_complete")
-                or data.get("verification_uri_complete")
-                or data.get("verification_url", "")
-            ),
-            expires_at=time.time() + float(data.get("expires_in") or 300),
-            interval=int(data.get("interval") or 2),
-        )
-        now = time.time()
-        self._device_sessions = {
-            k: v for k, v in self._device_sessions.items() if v.expires_at > now
-        }
-        session_id = secrets.token_urlsafe(12)
-        self._device_sessions[session_id] = session
-        return session_id, session
-
-    async def poll_device_login(
-        self, session_id: str
-    ) -> Literal["pending", "success", "expired", "denied"]:
-        session = self._device_sessions.get(session_id)
-        if session is None:
-            raise AppError("login_session_not_found", 404)
-        if time.time() > session.expires_at:
-            self._device_sessions.pop(session_id, None)
-            return "expired"
-        account = self.config.account
-        network = self.config.network
-        response = await send_with_retry(
-            self._client,
-            network,
-            "POST",
-            f"{network.auth_host}/v1/auth/token",
-            json={
-                "client_id": account.client_id,
-                "client_secret": account.client_secret,
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "device_code": session.device_code,
-            },
-            headers=self._base_headers(),
-        )
-        try:
-            data = response.json()
-        except ValueError:
-            data = {}
-        error = str(data.get("error") or "") if isinstance(data, dict) else "invalid"
-        if error in {"authorization_pending", "slow_down"}:
-            return "pending"
-        if error == "expired_token":
-            self._device_sessions.pop(session_id, None)
-            return "expired"
-        if error:
-            self._device_sessions.pop(session_id, None)
-            if error == "access_denied":
-                return "denied"
-            raise XunleiApiError(
-                response.status_code, error, str(data.get("error_description", ""))
-            )
-        self._device_sessions.pop(session_id, None)
-        self._store_token_response(data, "qrcode")
-        return "success"
-
-    async def password_login(self, username: str, password: str) -> StoredCredentials:
-        account = self.config.account
-        captcha = await self._auth_call(
-            "POST",
-            "/v1/shield/captcha/init",
-            json={
-                "client_id": account.client_id,
-                "action": "POST:/v1/auth/signin",
-                "device_id": self._creds.device_id,
-                "meta": {"username": f"u:{username}"},
-            },
-        )
-        if captcha.get("url") and not captcha.get("captcha_token"):
-            raise AppError("auth_failed", 403, "迅雷要求完成人机验证，请改用扫码登录或导入凭据。")
-        data = await self._auth_call(
-            "POST",
-            f"/v1/auth/signin?captcha_token={captcha.get('captcha_token', '')}",
-            json={
-                "client_id": account.client_id,
-                "client_secret": account.client_secret,
-                "username": f"u:{username}",
-                "password": password,
-            },
-        )
-        return self._store_token_response(data, "password")
-
     async def captcha_token(self, action: str, *, fresh: bool = False) -> str:
         """Signed `captcha_token` that guarded endpoints expect in `X-Captcha-Token`."""
+        await self._access_token()
         key = (action, self._creds.device_id, self._creds.user_id)
         cached = self._captcha_tokens.get(key)
         if cached and not fresh and cached[1] > time.time():

@@ -169,14 +169,6 @@ export interface AccountOverview {
   quota: Quota | null
 }
 
-export interface QrLoginStart {
-  session_id: string
-  verification_url: string
-  user_code: string
-  expires_in: number
-  interval: number
-}
-
 export interface ShareItem {
   share_id: string
   share_status: string
@@ -294,11 +286,8 @@ export interface AppSettings {
   account: {
     client_id: string
     client_secret: string
-    scope: string
     client_version: string
     package_name: string
-    auto_refresh: boolean
-    refresh_ahead_seconds: number
   }
   network: {
     auth_host: string
@@ -382,8 +371,12 @@ export interface EngineSettings {
   enabled: boolean
   binary_path: string
   home_dir: string
-  platform: 'qnap' | 'synology' | 'docker'
+  platform: 'qnap' | 'synology' | 'docker' | 'linux'
   nas_id: string
+  device_space: string
+  remote_devices: { device_id: string; name: string }[]
+  webhook_url: string
+  webhook_modules: Record<string, string[]>
   control_port: number
   public_port: number
   launcher_port: number
@@ -429,7 +422,45 @@ export interface EngineDisk {
   is_root: boolean
 }
 
+export interface EngineCapabilities {
+  platform: EngineSettings['platform']
+  launcher: boolean
+  local_config: boolean
+  detailed_status: boolean
+  touch_tasks: boolean
+  storage: boolean
+  device_spaces: boolean
+  remote_devices: boolean
+  webhook: boolean
+}
+
+export interface StorageField {
+  title: string
+  key: string
+  type: string
+  placeholder: string
+  max_length: number
+  required: boolean
+  value: string | number | boolean
+}
+
+export interface StorageType {
+  name: string
+  type: string
+  config_templates: StorageField[]
+}
+
+export interface StorageMount {
+  id: string
+  file_id: string
+  type: string
+  name: string
+  config: Record<string, string>
+}
+
 export interface EngineStatus {
+  capabilities?: EngineCapabilities
+  session_key?: string
   enabled: boolean
   state: EngineState
   message: string

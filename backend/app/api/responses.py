@@ -23,4 +23,4 @@ def errors(*statuses: int) -> dict[int | str, dict[str, Any]]:
 
 
 XUNLEI_ERRORS = errors(400, 401, 404, 502, 503)
-ENGINE_ERRORS = errors(409, 502, 503)
+ENGINE_ERRORS = errors(401, 409, 502, 503)

@@ -2,6 +2,7 @@
 
 - Work on `main`. Subagents must not launch further subagents; use subagents only when explicitly requested or necessary for complex work. Do not use subagents in plan mode.
 - Load skills only when explicitly requested. Read focused file sections rather than large files.
+- The parent project's `progress.md` is exclusively for reverse-engineering findings and TODOs. Never write application development, frontend/backend fixes, test/build results, commits/pushes, deployments or service operations there; keep application notes in this project's relevant documentation.
 - The product is a single-user web app for the Xunlei Pan account stored on this host: cloud drive browsing and file operations, trash, shares, activity, cloud add (offline download), downloads executed by the bundled Xunlei engine (`engine/`, `app/services/engine`), and server-side uploads / HTTP downloads. See `docs/architecture.md` for the reverse-engineered protocol.
 - The site has no authentication of its own by design; only Xunlei login (QR / password / credential import) exists. Do not add site accounts, roles or tokens without a product request, and do not expose the API publicly by default.
 - Keep changes simple and cohesive. Use English for identifiers, filenames, routes, comments, logs, and technical documentation; use Simplified Chinese for user-facing UI and error messages.

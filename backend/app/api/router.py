@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.account import router as account_router
 from app.api.v1.downloads import router as downloads_router
 from app.api.v1.engine import router as engine_router
+from app.api.v1.engine_extensions import router as engine_extensions_router
 from app.api.v1.files import router as files_router
 from app.api.v1.health import router as health_router
 from app.api.v1.offline import router as offline_router
@@ -21,6 +22,7 @@ for router in (
     trash_router,
     offline_router,
     engine_router,
+    engine_extensions_router,
     downloads_router,
     shares_router,
     events_router,

@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -13,30 +12,15 @@ def test_health_and_structured_errors(client: TestClient) -> None:
 
 def test_drive_requires_login_without_contacting_xunlei(client: TestClient) -> None:
     response = client.get("/api/v1/files")
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "auth_required"
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "engine_unavailable"
 
 
-def test_import_credentials_and_logout_keeps_device(client: TestClient) -> None:
-    body = {
-        "access_token": "token",
-        "refresh_token": "refresh",
-        "expires_at": time.time() + 3600,
-        "user_id": "42",
-        "device_id": "0123456789abcdef0123456789abcdef",
-    }
-    status = client.post("/api/v1/account/import", json=body).json()
-    assert status["logged_in"] and status["token_valid"]
-    assert status["device_id"] == body["device_id"]
-    assert client.post("/api/v1/account/logout").status_code == 200
-    after = client.get("/api/v1/account").json()
-    assert not after["logged_in"]
-    assert after["device_id"] == body["device_id"]
-
-
-def test_import_rejects_payload_without_tokens(client: TestClient) -> None:
-    response = client.post("/api/v1/account/import", json={"user_id": "1"})
-    assert response.status_code == 422
+def test_independent_login_routes_are_removed(client: TestClient) -> None:
+    for path in ("import", "import/file", "password", "qrcode"):
+        assert client.post(f"/api/v1/account/{path}", json={}).status_code == 404
+    assert client.put("/api/v1/account/device", json={}).status_code == 404
+    assert client.get("/api/v1/account/qrcode/old-session").status_code == 404
 
 
 def test_settings_roundtrip_validation_and_reset(client: TestClient) -> None:
@@ -62,9 +46,12 @@ def test_settings_persist_across_restarts(tmp_path: Path) -> None:
     with TestClient(create_app(settings)) as first:
         value = first.get("/api/v1/settings").json()
         value["drive"]["page_size"] = 200
-        first.put("/api/v1/settings", json=value)
+        value["engine"]["platform"] = "linux"
+        assert first.put("/api/v1/settings", json=value).status_code == 200
     with TestClient(create_app(settings)) as second:
-        assert second.get("/api/v1/settings").json()["drive"]["page_size"] == 200
+        saved = second.get("/api/v1/settings").json()
+        assert saved["drive"]["page_size"] == 200
+        assert saved["engine"]["platform"] == "linux"
 
 
 def test_bulk_transfer_route_is_not_shadowed(client: TestClient) -> None:

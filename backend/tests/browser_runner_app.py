@@ -20,6 +20,7 @@ from fastapi import FastAPI
 
 from app.core.config import Settings
 from app.main import create_app
+from app.repositories.account import StoredCredentials
 from app.schemas.engine import EngineStatus
 from app.schemas.xunlei import About
 from app.services.container import Container
@@ -51,6 +52,17 @@ class BrowserProcess(EngineProcess):
 
 async def fake_user() -> dict[str, Any]:
     return {"sub": "browser-user", "name": "浏览器测试", "vip_info": []}
+
+
+async def fake_credentials() -> StoredCredentials:
+    assert container is not None
+    return StoredCredentials(
+        access_token="browser-access",
+        expires_at=time.time() + 3600,
+        user_id="browser-user",
+        device_id=container.api.device_id,
+        source="engine",
+    )
 
 
 async def fake_about() -> About:
@@ -136,6 +148,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     global container
     async with original_lifespan(application):
         container = application.state.container
+        container.api.engine_credentials = fake_credentials
         creds = container.api.credentials
         creds.user_id, creds.access_token = "browser-user", "fake-access-token"
         creds.expires_at = time.time() + 86400

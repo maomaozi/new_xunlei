@@ -19,9 +19,8 @@ API on 2026-10-23/24.
 
 | Feature | Endpoint |
 |---|---|
-| QR login | `POST /v1/auth/device/code`, poll `POST /v1/auth/token` (device_code grant) |
-| Password login | `POST /v1/shield/captcha/init` → `POST /v1/auth/signin?captcha_token=` |
-| Refresh | `POST /v1/auth/token` (refresh_token grant) |
+| QR login | Engine `/auth/qrlogin` and `/auth/qrlogin/status`, exposed under `/api/v1/engine/login/*` |
+| Session | Encrypted InnerWeb `POST /fetch`, `action.get_token`; OAuth refresh is owned exclusively by the engine |
 | Profile / VIP | `GET /v1/user/me` (auth host) |
 | Quota | `GET /drive/v1/about` |
 | List | `GET /drive/v1/files` with `filters` (`trashed`, `starred`, `mime_type.prefix`, `category`); `parent_id=*` searches all folders |
@@ -72,6 +71,18 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   with exponential backoff, adopts a running engine through `pan.pid`, restarts it when launch
   settings change and pushes runtime settings to `/device/local_config`. Other runners on the
   host are reported because one device id may only be online once (MQTT kick-out).
+- Platform configuration: `engine.platform` accepts `qnap` (default), `synology`, `docker`,
+  and `linux`. Saving a different platform restarts the engine. The launch environment
+  passes the configured device identity through `DeviceId`; `--info` writes device
+  information and cannot set that identity. Linux exposes local configuration and QR
+  login, and HTTP download plus proxy pause/resume were verified on 3.23.3. The observed
+  account had `PLATFORM_LINUX=UNSUBMITTED` and ran under a protection period, so this does
+  not establish lasting platform authorization. Its enabled VFS can also create cloud
+  drive placeholders in the download directory.
+- Platform-specific startup, capability-aware settings, separate device spaces, remote
+  task controls, storage mounts and HTTP webhook delegation are documented in
+  [platform-integration.md](platform-integration.md). Linux and Docker skip the Launcher;
+  unsupported runtime controls are disabled and rejected by the settings API.
 - Readiness: `/device/healthz` is probed independently from optional `/device/status`.
   A healthy local API means `running` even when the platform omits detailed status (observed
   on Synology). `login_status_known=false` distinguishes unavailable account information from
@@ -85,10 +96,18 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   claim `key=LocalToken`; the device API takes `pan-auth: <jwt>` with `key=UIAuth`, then calls
   `<LauncherAddress>/launcher/auth` and requires `{"key": StaticKey(token)}`
   (`utils.StaticKey`, see `app/services/engine/tokens.py`).
-- Login: Xunlei rotates refresh tokens (the old one fails with `invalid_grant`), so the engine
-  keeps its own chain via its QR login (`/auth/qrlogin`, `/auth/qrlogin/status`); it refreshes
-  when less than 10% of `expires_in` is left. `/auth/credential` only exists on platforms
-  labelled `withSetCredential`, which use other client ids.
+- Login: one engine session serves both the backend and downloads. The engine owns its
+  rotating Refresh Token. `EngineService.access_credentials` reads its active Access Token
+  through encrypted InnerWeb `POST /fetch` / `action.get_token` on the configured public
+  port. `expire_at` is UNIX seconds; device identity comes from that engine home's
+  `info.file` because `cli.device_space` can be empty. Tokens stay in backend memory;
+  SQLite retains only the engine source and account/device metadata. Every authenticated
+  request re-reads the engine session; a cloud 401 retries once with the latest token.
+  Failed engine reads clear the in-memory token. Logout through either account or engine
+  routes signs out the shared engine session. Login/import/password/device-edit APIs for
+  independent backend sessions have been removed, and legacy app tokens are cleared on
+  startup. Account switches clear captcha caches and retain the running launch identity
+  to avoid restarting the engine just because its active user changed.
 - Task observations: `RunnerTasks` merges the account-scoped local Bolt/Gob database,
   `/device/debug` memory snapshot, application-owned SQLite history and optional background
   cloud enrichment. List, detail, summary and compatibility live responses use one version.

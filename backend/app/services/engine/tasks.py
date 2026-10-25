@@ -647,14 +647,16 @@ class RunnerTasks:
                     )
                     had_local = tid in db_ids or tid in observed_task_ids(self.live_raw)
                     use_touch = bool(
-                        saved.dl_task_id and tid in db_ids and cfg.platform != "synology"
+                        saved.dl_task_id
+                        and tid in db_ids
+                        and self.service.capabilities().touch_tasks
                     )
                     proxy_sent = False
                     started = time.monotonic()
 
                     async def proxy() -> None:
                         nonlocal proxy_sent
-                        await self.service.launcher.start(cfg.launcher_port)
+                        await self.service.ensure_launcher()
                         self.check_mutation_identity(identity)
                         client = self.service.require_running()
                         if action == "delete":
@@ -842,7 +844,7 @@ class RunnerTasks:
                     "上次提交结果尚未确认，请先检查任务列表，避免重复下载。",
                 )
             before = set(self.history)
-            await self.service.launcher.start(self.service.config.launcher_port)
+            await self.service.ensure_launcher()
             self.check_mutation_identity(identity)
             payload = {
                 "type": task_type,

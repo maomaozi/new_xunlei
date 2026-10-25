@@ -8,13 +8,13 @@
 
 | 模块 | 能力 |
 |---|---|
-| 账号 | 扫码登录（OAuth2 Device Code）、账号密码登录、导入 `credentials.json` / Token、Token 自动续期、设备 ID 管理、会员与空间概览 |
+| 账号 | 引擎统一扫码登录、会话自动续期、会员与空间概览 |
 | 云盘 | 目录浏览（虚拟滚动 + 无限加载）、列表/网格视图、排序、筛选、分类（视频/图片/音频/文档/压缩包/收藏）、新建文件夹、重命名、移动、复制、收藏、移入回收站/彻底删除、详情（GCID、直链、分辨率…）、在线播放、外部播放器、复制直链、浏览器下载 |
 | 上传 | 浏览器上传文件/文件夹（保留目录结构）、上传服务器本机文件或目录；GCID 秒传优先，未命中走阿里云 OSS STS 直传（大文件 Multipart 分片并发） |
 | 内置 HTTP 下载器 | （可选）云盘文件/文件夹从 VIP CDN 多线程分段下载，断点续传、全局限速、同名冲突策略、CDN 节点故障自动换链 |
 | 云添加 | 磁力、HTTP(S)、FTP、ed2k 批量提交，`.torrent` 本地解析预览后提交，单个磁力/种子可勾选要下载的子文件，选择保存位置，进度自动刷新，删除任务（可同时删文件） |
 | 下载（迅雷引擎） | 磁力、HTTP(S)、FTP、ed2k、thunder 链接与 .torrent 直接下载到本机（P2SP / BT / 会员加速），可勾选子文件、选择保存目录；暂停 / 继续 / 重试 / 删除（可同时删文件）、加速通道显示、超级加速试用；云盘文件与文件夹经引擎取回本机 |
-| 下载引擎 | 自动拉起并守护内置 `xunlei-pan-cli` 引擎（异常自动重启、设置热更新），独立扫码登录、磁盘占用、冲突进程检测、日志查看 |
+| 下载引擎 | 自动拉起并守护内置 `xunlei-pan-cli` 引擎（启动注入 `DriveLogLevel=debug` 根治 403、设置热更新、异常重启自愈），纯本地内存毫秒级进度/速度直读（零云端延迟）、Go PProf 运行时性能剖析与 Goroutine 诊断、会员超级加速试用一键重置、统一扫码登录、磁盘占用、冲突进程检测与日志管理 |
 | 分享 | 创建（有效期、提取码、转存次数）、列表（浏览/转存统计）、复制、取消分享 |
 | 回收站 / 动态 | 恢复、彻底删除、清空；云盘动态时间线 |
 | 设置 | 账号、网络（域名直连 IP、超时、重试、代理、UA…）、云盘、下载、上传、云添加、分享、播放、外观（主题/强调色/密度/动画）、系统（本机可访问目录）——全部可在网页上修改并立即生效 |
@@ -45,25 +45,17 @@ cd frontend && bun install --frozen-lockfile && bun --bun run dev
 
 ## 下载引擎
 
-后端启动时自动拉起 `engine/xunlei-pan-cli.*`（数据目录 `backend/data/engine`），并在「下载引擎」页显示状态。首次使用请在该页扫码登录引擎：迅雷的 Refresh Token 会轮换，引擎因此使用独立于本站账号的会话，并自行续期。注意同一设备 ID 只能有一个引擎实例在线，请停止其他 NAS / Docker 版迅雷。
+后端启动时自动拉起 `engine/xunlei-pan-cli.*`（数据目录 `backend/data/engine`），并在「下载引擎」页显示状态。云盘与下载统一使用引擎账号，在「设置 → 账号」或「下载引擎」扫码一次即可。引擎独占 Refresh Token 并自行续期，后端只读取活动 Access Token，不另行登录或刷新。
 
-## 登录 / 导入凭据
+账号页可同步状态、退出和切换账号。退出会同时影响云盘与下载；引擎停止或会话过期时，后端停止使用旧 Token。独立扫码、密码登录、凭据导入和手动修改设备 ID 已移除；旧后端独立 Token 在升级后的首次启动时清除，引擎已有登录与下载数据保留。
 
-打开「设置 → 账号」，任选其一：
+注意同一设备 ID 只能有一个引擎实例在线，请停止其他 NAS / Docker 版迅雷。
 
-1. **扫码登录**：用手机迅雷 App 扫描页面上的二维码。
-2. **导入凭据**：粘贴或上传包含 `access_token` / `refresh_token` / `device_id` 的 JSON。
-3. **账号密码**：若迅雷要求人机验证，请改用前两种方式。
-
-也可以用 API 导入：
-
-```bash
-curl -X POST http://127.0.0.1:8011/api/v1/account/import \
-  -H 'Content-Type: application/json' \
-  -d @credentials.json
-```
-
-注意：Access Token 到期后会用 Refresh Token 自动续期。若迅雷轮换 Refresh Token，原 Docker 容器里的旧 Token 可能随之失效。
+The platform selector under Settings → 下载引擎 → 进程与运行环境（高级） supports
+QNAP (default), Synology, Docker and Linux. Saving a platform change restarts the engine.
+Platform access depends on the account; the Linux verification used a temporary protection
+period rather than confirmed permanent authorization. See [docs/architecture.md](docs/architecture.md)
+for the verified scope and Linux VFS behavior.
 
 ## 数据
 

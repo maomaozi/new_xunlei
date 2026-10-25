@@ -29,6 +29,7 @@ import PageHeader from '../components/PageHeader'
 import { cx } from '../lib/cx'
 import { Card, IconButton, IconTile, ListGroup, ListItem, PillButton, SectionHeader, type Tone } from '../components/ui'
 import { useIsMobile } from '../hooks/useMediaQuery'
+import { useEngineCapabilities } from '../hooks/useEngine'
 import { errorMessage, settingsApi, systemApi, type AppSettings, type SettingsSection } from '../lib/api'
 import { formatBytes } from '../lib/format'
 import { PLAYERS } from '../lib/players'
@@ -45,7 +46,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { key: 'account', label: '账号', icon: UserRound, tone: 'accent', group: '账号', hint: '登录方式、Token 与设备 ID' },
+  { key: 'account', label: '账号', icon: UserRound, tone: 'accent', group: '账号', hint: '引擎统一登录与账号状态' },
   { key: 'engine', label: '下载引擎', icon: Cpu, tone: 'accent', group: '下载与传输', hint: '目录、限速、并发与进程' },
   { key: 'download', label: '云盘下载', icon: Download, tone: 'success', group: '下载与传输', hint: '下载方式与内置下载器' },
   { key: 'upload', label: '上传', icon: Upload, tone: 'success', group: '下载与传输', hint: '秒传、分片与并发' },
@@ -101,7 +102,7 @@ function SwitchField({ name, label, desc }: { name: string; label: string; desc?
   )
 }
 
-function NumberInput(props: { min?: number; max?: number; step?: number; suffix?: string; value?: number; onChange?: (v: number | null) => void }) {
+function NumberInput(props: { disabled?: boolean; min?: number; max?: number; step?: number; suffix?: string; value?: number; onChange?: (v: number | null) => void }) {
   return <InputNumber {...props} className="!w-full sm:!w-[260px]" />
 }
 
@@ -418,7 +419,7 @@ function DirField({ name, label, desc, form }: { name: string; label: string; de
 }
 
 /** Additional engine download folders, each picked from the host file system. */
-function ExtraDirsField({ form }: { form: FormInstance }) {
+function ExtraDirsField({ form, disabled = false }: { form: FormInstance; disabled?: boolean }) {
   // Row index being edited, or -1 to append a new folder.
   const [picking, setPicking] = useState<number | null>(null)
   const name = 'extra_download_dirs'
@@ -431,15 +432,15 @@ function ExtraDirsField({ form }: { form: FormInstance }) {
             {fields.map((field) => (
               <div key={field.key} className="flex gap-2">
                 <Form.Item name={field.name} noStyle rules={[{ required: true }]}>
-                  <Input placeholder="/mnt/disk/downloads" className="!font-mono" />
+                  <Input disabled={disabled} placeholder="/mnt/disk/downloads" className="!font-mono" />
                 </Form.Item>
-                <PillButton icon={HardDrive} onClick={() => setPicking(field.name)} className="!py-2">
+                <PillButton disabled={disabled} icon={HardDrive} onClick={() => setPicking(field.name)} className="!py-2">
                   浏览
                 </PillButton>
-                <IconButton icon={Minus} label="移除" size="sm" onClick={() => remove(field.name)} />
+                <IconButton disabled={disabled} icon={Minus} label="移除" size="sm" onClick={() => remove(field.name)} />
               </div>
             ))}
-            <PillButton icon={Plus} onClick={() => setPicking(-1)} className="!py-2">
+            <PillButton disabled={disabled} icon={Plus} onClick={() => setPicking(-1)} className="!py-2">
               添加目录
             </PillButton>
           </div>
@@ -464,27 +465,37 @@ function ExtraDirsField({ form }: { form: FormInstance }) {
   )
 }
 
+function EngineLauncherPort({ form }: { form: FormInstance }) {
+  const platform = Form.useWatch('platform', form) as AppSettings['engine']['platform'] | undefined
+  const capabilities = useEngineCapabilities(platform)
+  if (!capabilities.data?.launcher) return null
+  return <Field name="launcher_port" label="本地验证端口" desc="用于下载引擎的本地连接验证">
+    <NumberInput min={1024} max={65535} />
+  </Field>
+}
+
 function EnginePanel() {
+  const capabilities = useEngineCapabilities()
+  const localConfig = capabilities.data?.local_config === true
   return (
     <div className="space-y-6">
       <SectionForm
         section="engine"
         title="下载引擎"
-        description="限速、并发、目录等修改会立即生效；程序、端口、平台、数据目录变更会自动重启引擎。"
       >
         {(form) => (
           <>
             <SwitchField name="enabled" label="启用下载引擎" desc="关闭后停止引擎，仍可查看已有任务" />
             <DirField name="download_dir" label="默认下载目录" desc="链接、种子与云盘取回的默认保存位置" form={form} />
-            <ExtraDirsField form={form} />
+            <ExtraDirsField form={form} disabled={!localConfig} />
             <Field name="speed_limit_kbps" label="下载限速" desc="引擎全部任务共享，0 表示不限速">
-              <NumberInput min={0} suffix="KB/s" />
+              <NumberInput disabled={!localConfig} min={0} suffix="KB/s" />
             </Field>
             <Field name="max_running_tasks" label="同时下载任务数">
-              <NumberInput min={1} max={30} suffix="个" />
+              <NumberInput disabled={!localConfig} min={1} max={30} suffix="个" />
             </Field>
             <Field name="device_name" label="设备名称" desc="在迅雷 App「远程设备」中显示的名称，留空使用平台默认名">
-              <Input placeholder="默认" maxLength={60} />
+              <Input disabled={!localConfig} placeholder="默认" maxLength={60} />
             </Field>
             <SwitchField name="delete_files_with_task" label="删除任务时默认同时删除文件" />
             <SwitchField name="local_control_fallback" label="兼容任务控制" desc="本地控制不可用时由引擎同步暂停、继续和删除操作，需要网络连接" />
@@ -499,6 +510,7 @@ function EnginePanel() {
             <Field name="task_poll_seconds" label="云端信息同步间隔" desc="补充任务名称、来源与加速信息">
               <NumberInput min={2} max={120} suffix="秒" />
             </Field>
+            {capabilities.data && !localConfig && <PillButton onClick={() => document.getElementById('engine-platform')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>切换平台</PillButton>}
           </>
         )}
       </SectionForm>
@@ -510,15 +522,16 @@ function EnginePanel() {
             </Field>
             <DirField name="home_dir" label="引擎数据目录" desc="引擎的 HOME（含 .drive 登录状态），留空使用 <数据目录>/engine" form={form} />
             <DirField name="torrent_dir" label="种子缓存目录" desc="磁力解析得到的 .torrent，留空使用 <引擎数据目录>/torrents" form={form} />
-            <Field name="platform" label="平台身份" desc="需账号拥有对应平台的使用权限">
+            <div id="engine-platform"><Field name="platform" label="平台身份" desc="需账号拥有对应平台的使用权限">
               <OptionSelect title="平台身份"
                 options={[
                   { value: 'qnap', label: '威联通 QNAP' },
                   { value: 'synology', label: '群晖 Synology' },
                   { value: 'docker', label: '通用平台' },
+                  { value: 'linux', label: 'Linux' },
                 ]}
               />
-            </Field>
+            </Field></div>
             <Field name="nas_id" label="NAS ID">
               <Input className="!font-mono" />
             </Field>
@@ -528,17 +541,15 @@ function EnginePanel() {
             <Field name="public_port" label="内部服务端口">
               <NumberInput min={1024} max={65535} />
             </Field>
-            <Field name="launcher_port" label="本地验证端口" desc="用于下载引擎的本地连接验证">
-              <NumberInput min={1024} max={65535} />
-            </Field>
+            <EngineLauncherPort form={form} />
             <Field name="single_task_max_mb" label="单任务缓存上限">
-              <NumberInput min={10} max={4096} suffix="MB" />
+              <NumberInput disabled={!localConfig} min={10} max={4096} suffix="MB" />
             </Field>
             <Field name="single_task_reserve_mb" label="单任务预留缓存">
-              <NumberInput min={1} max={1024} suffix="MB" />
+              <NumberInput disabled={!localConfig} min={1} max={1024} suffix="MB" />
             </Field>
             <Field name="overall_share_max_mb" label="全局共享缓存上限">
-              <NumberInput min={10} max={8192} suffix="MB" />
+              <NumberInput disabled={!localConfig} min={10} max={8192} suffix="MB" />
             </Field>
             <SwitchField name="auto_restart" label="异常退出自动重启" desc="按 5 秒起指数退避，最长 60 秒" />
             <SwitchField name="stop_with_app" label="随本服务一起停止" desc="关闭后本服务重启时引擎继续运行，并在下次启动时自动接管" />
@@ -548,6 +559,32 @@ function EnginePanel() {
           </>
         )}
       </SectionForm>
+      {capabilities.data?.device_spaces && <div id="devices"><SectionForm section="engine" title="设备与连接"
+        toForm={(value) => ({ device_space: value.device_space?.replace(/^device_id#/, '') ?? '', remote_devices: value.remote_devices, webhook_url: value.webhook_url,
+          webhook_rows: Object.entries(value.webhook_modules ?? {}).map(([module, functions]) => ({ module, functions: functions.join(',') })) })}
+        fromForm={(values) => ({ device_space: String(values.device_space ?? '').trim() ? `device_id#${String(values.device_space).trim().replace(/^device_id#/, '')}` : '', remote_devices: values.remote_devices as AppSettings['engine']['remote_devices'], webhook_url: String(values.webhook_url ?? '').trim(),
+          webhook_modules: Object.fromEntries(((values.webhook_rows ?? []) as { module: string; functions: string }[]).map((row) => [row.module.trim(), row.functions.split(',').map((name) => name.trim()).filter(Boolean)])) })}>
+        {() => <>
+          <Field name="device_space" label="设备空间"><Input placeholder="设备 ID，留空使用默认空间" /></Field>
+          <Row label="远程设备"><Form.List name="remote_devices">{(fields, { add, remove }) => <div className="space-y-2">
+            {fields.map((field) => <div key={field.key} className="flex flex-wrap gap-2">
+              <Form.Item name={[field.name, 'name']} noStyle><Input placeholder="设备名称" /></Form.Item>
+              <Form.Item name={[field.name, 'device_id']} noStyle rules={[{ required: true, message: '请输入设备 ID' }]}><Input placeholder="设备 ID" /></Form.Item>
+              <IconButton size="sm" icon={Minus} label="移除设备" onClick={() => remove(field.name)} />
+            </div>)}
+            <PillButton icon={Plus} onClick={() => add({ name: '', device_id: '' })}>添加设备</PillButton>
+          </div>}</Form.List></Row>
+          <Field name="webhook_url" label="Webhook 地址"><Input placeholder="https://" /></Field>
+          <Row label="模块与方法"><Form.List name="webhook_rows">{(fields, { add, remove }) => <div className="space-y-2">
+            {fields.map((field) => <div key={field.key} className="flex flex-wrap gap-2">
+              <Form.Item name={[field.name, 'module']} noStyle rules={[{ required: true, message: '请输入模块' }]}><Input placeholder="模块" /></Form.Item>
+              <Form.Item name={[field.name, 'functions']} noStyle rules={[{ required: true, message: '请输入方法' }]}><Input placeholder="方法，逗号分隔" /></Form.Item>
+              <IconButton size="sm" icon={Minus} label="移除模块" onClick={() => remove(field.name)} />
+            </div>)}
+            <PillButton icon={Plus} onClick={() => add({ module: '', functions: '' })}>添加模块</PillButton>
+          </div>}</Form.List></Row>
+        </>}
+      </SectionForm></div>}
     </div>
   )
 }
@@ -784,7 +821,7 @@ function SystemPanel() {
 
 function AccountAdvanced() {
   return (
-    <SectionForm section="account" title="OAuth 客户端（高级）" description="用于迅雷账号登录与授权，通常无需修改。">
+    <SectionForm section="account" title="引擎客户端（高级）" description="用于引擎身份、云盘请求与本地任务读取，登录续期由引擎管理，通常无需修改。">
       {() => (
         <>
           <Field name="client_id" label="Client ID">
@@ -793,18 +830,11 @@ function AccountAdvanced() {
           <Field name="client_secret" label="Client Secret">
             <Input.Password className="!font-mono" />
           </Field>
-          <Field name="scope" label="授权范围">
-            <Input />
-          </Field>
           <Field name="client_version" label="客户端版本">
             <Input />
           </Field>
           <Field name="package_name" label="包名">
             <Input />
-          </Field>
-          <SwitchField name="auto_refresh" label="自动续期 Access Token" desc="到期前使用 Refresh Token 无感刷新" />
-          <Field name="refresh_ahead_seconds" label="提前续期时间">
-            <NumberInput min={30} max={7200} suffix="秒" />
           </Field>
         </>
       )}
