@@ -106,6 +106,7 @@ function AccountCard({ status }: { status: EngineStatus }) {
   const queryClient = useQueryClient()
   const [login, setLogin] = useState(false)
   const running = status.state === 'running'
+  const loginKnown = status.login_status_known !== false
   const user = status.user
 
   const logout = () =>
@@ -126,7 +127,7 @@ function AccountCard({ status }: { status: EngineStatus }) {
 
   return (
     <Card className="p-4 md:p-6">
-      <SectionHeader title="引擎账号" extra={status.logged_in ? <Badge tone="success">已登录</Badge> : <Badge>未登录</Badge>} />
+      <SectionHeader title="引擎账号" extra={status.logged_in ? <Badge tone="success">已登录</Badge> : <Badge>{loginKnown ? '未登录' : '状态未知'}</Badge>} />
       {status.logged_in ? (
         <div className="flex items-center gap-3">
           {user.avatar && <img src={user.avatar} alt="" className="h-12 w-12 rounded-full object-cover" referrerPolicy="no-referrer" />}
@@ -140,7 +141,9 @@ function AccountCard({ status }: { status: EngineStatus }) {
         </div>
       ) : (
         <div className="text-[13px] leading-relaxed text-ink-3">
-          引擎使用独立的迅雷会话（迅雷的 Refresh Token 会轮换，与本站共用会互相挤掉），扫码登录一次后由引擎自动续期。
+          {loginKnown
+            ? '引擎使用独立的迅雷会话（迅雷的 Refresh Token 会轮换，与本站共用会互相挤掉），扫码登录一次后由引擎自动续期。'
+            : '当前平台无法提供账号状态，无法确认是否已登录。引擎运行情况请查看进程状态、下载任务与日志。'}
         </div>
       )}
       {status.user_mismatch && (

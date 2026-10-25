@@ -4,10 +4,14 @@ import datetime
 import hashlib
 import hmac
 import json
+import time
 from pathlib import Path
+from typing import cast
 
 import httpx
+import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.schemas.xunlei import DriveTask
@@ -15,6 +19,7 @@ from app.services.engine.client import EngineClient
 from app.services.engine.launcher import LauncherServer
 from app.services.engine.process import find_binary, host_arch, rotate_log, tail_log
 from app.services.engine.service import (
+    SNAPSHOT_TTL,
     overlay,
     parse_indexes,
     parse_live,
@@ -243,3 +248,107 @@ def test_rotate_log_copies_and_truncates(tmp_path: Path) -> None:
 def test_trial_clean_needs_running_engine(client: TestClient) -> None:
     response = client.post("/api/v1/engine/trial/clean")
     assert response.status_code == 503
+
+
+@pytest.mark.parametrize("detailed_status", [True, False])
+def test_engine_readiness_with_optional_platform_routes(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, detailed_status: bool
+) -> None:
+    from app.services.container import Container
+    from app.services.engine.process import EngineProcess
+
+    container: Container = cast(FastAPI, client.app).state.container
+    engine = container.engine
+    engine.config.stop_with_app = False
+    monkeypatch.setattr(EngineProcess, "alive", property(lambda _: True))
+    engine.process.pid = 123
+    engine.process.started_at = time.time()
+    engine._desired = True
+    engine.config.download_dir = str(tmp_path / "downloads")
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/device/status" and detailed_status:
+            return httpx.Response(
+                200, json={"auth_status": {"status": "complete"}, "user": {"id": "engine-user"}}
+            )
+        if request.url.path == "/device/healthz":
+            return httpx.Response(200, json={"running_count": 2})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        engine_client = engine.client
+        await engine_client._http.aclose()
+        engine_client._secret = b"test-secret"
+        engine_client._http = httpx.AsyncClient(
+            base_url="http://127.0.0.1:5075", transport=httpx.MockTransport(handler)
+        )
+        await engine._tick()
+        status = engine.status()
+        assert status.state == "running"
+        assert status.pid == 123 and status.running_tasks == 2
+        assert status.login_status_known is detailed_status
+        assert status.logged_in is detailed_status
+        assert "运行时配置" in status.message and "尚未应用" in status.message
+        if not detailed_status:
+            assert "/device/status" in status.message and "HTTP 404" in status.message
+        await engine._tick()
+        assert calls.count("/device/status") == (2 if detailed_status else 1)
+        assert calls.count("/device/v1/local_config") == 1
+        assert calls.count("/device/healthz") == 2
+
+    asyncio.run(run())
+
+
+def test_engine_probe_failures_expire_and_recover(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.container import Container
+    from app.services.engine.process import EngineProcess
+
+    container: Container = cast(FastAPI, client.app).state.container
+    engine = container.engine
+    engine.config.stop_with_app = False
+    monkeypatch.setattr(EngineProcess, "alive", property(lambda _: True))
+    engine.process.pid = 123
+    engine.process.started_at = time.time()
+    healthy = True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if healthy:
+            data = (
+                {"running_count": 3}
+                if request.url.path == "/device/healthz"
+                else {"auth_status": {"status": "complete"}, "user": {"id": "engine-user"}}
+            )
+            return httpx.Response(200, json=data)
+        raise httpx.ConnectError("connection refused", request=request)
+
+    async def run() -> None:
+        nonlocal healthy
+        engine_client = engine.client
+        await engine_client._http.aclose()
+        engine_client._secret = b"test-secret"
+        engine_client._http = httpx.AsyncClient(
+            base_url="http://127.0.0.1:5075", transport=httpx.MockTransport(handler)
+        )
+        await engine._refresh()
+        assert engine.status().state == "running"
+        healthy = False
+        await engine._refresh()
+        assert engine.status().state == "running"
+        engine._snapshot_at -= SNAPSHOT_TTL + 1
+        engine._health_at -= SNAPSHOT_TTL + 1
+        await engine._refresh()
+        status = engine.status()
+        assert status.state == "starting" and status.running_tasks == 0
+        assert "进程已启动" in status.message and "控制端口" in status.message
+        assert not status.login_status_known and not status.logged_in
+        healthy = True
+        await engine._refresh()
+        assert engine.status().state == "running"
+        assert engine.status().message == ""
+        assert engine.status().logged_in
+
+    asyncio.run(run())

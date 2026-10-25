@@ -42,6 +42,10 @@ class EngineStatus(BaseModel):
     device_id: str
     space: str = Field(description="Task space served by the engine (device_id#<id>)")
     login_status: str = Field(description="Engine login: '', pending or complete")
+    login_status_known: bool = Field(
+        default=True,
+        description="False when the engine cannot report account state; logged_in is then unknown",
+    )
     logged_in: bool
     user: EngineUser
     user_mismatch: bool = Field(description="Engine is signed in to another account")

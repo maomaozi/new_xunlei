@@ -21,8 +21,10 @@ router = APIRouter(prefix="/engine", tags=["engine"])
     response_model=EngineStatus,
     summary="Engine status",
     description=(
-        "Process state of the bundled `xunlei-pan-cli` engine, its login (`/device/status` of "
-        "the local control API), disks and other runners on this host. Access: Public."
+        "Process and local API readiness of the bundled `xunlei-pan-cli` engine, its login "
+        "(when supported by `/device/status`; otherwise login_status_known is false), "
+        "capability and probe diagnostics in message, disks and other runners on this host. "
+        "Access: Public."
     ),
 )
 async def status(engine: EngineDep) -> EngineStatus:

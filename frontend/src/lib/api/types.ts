@@ -445,6 +445,7 @@ export interface EngineStatus {
   device_id: string
   space: string
   login_status: string
+  login_status_known: boolean
   logged_in: boolean
   user: EngineUser
   user_mismatch: boolean

@@ -45,7 +45,7 @@ from app.schemas.engine import (
 )
 from app.schemas.settings import AppSettings, EngineSettings
 from app.schemas.xunlei import DriveTask
-from app.services.engine.client import EngineClient, JsonObject
+from app.services.engine.client import EngineClient, EngineRouteUnavailable, JsonObject
 from app.services.engine.launcher import LauncherServer
 from app.services.engine.process import (
     EngineProcess,
@@ -294,6 +294,12 @@ class EngineService:
         self._message = ""
         self._snapshot: JsonObject = {}
         self._snapshot_at = 0.0
+        self._health_at = 0.0
+        self._status_supported = True
+        self._config_supported = True
+        self._status_error = ""
+        self._health_error = ""
+        self._config_error = ""
         self._running_tasks = 0
         self._applied: tuple[object, ...] | None = None
         self._summary: DownloadSummary | None = None
@@ -414,6 +420,13 @@ class EngineService:
         self._applied = None
         self._message = ""
         self._snapshot = {}
+        self._snapshot_at = 0.0
+        self._health_at = 0.0
+        self._status_supported = True
+        self._config_supported = True
+        self._status_error = ""
+        self._health_error = ""
+        self._config_error = ""
         self.client.forget_secret()
 
     async def start(self) -> None:
@@ -483,18 +496,46 @@ class EngineService:
             return
         await asyncio.to_thread(rotate_log, self.home / "engine.log", cfg.log_max_mb * 1024 * 1024)
         await self._refresh()
-        if self._snapshot and self._applied != self._config_signature():
-            await self._apply_config()
+        if self._ready() and self._config_supported and self._applied != self._config_signature():
+            try:
+                await self._apply_config()
+                self._config_error = ""
+            except EngineRouteUnavailable:
+                self._config_supported = False
+                self._config_error = "当前平台不支持运行时配置，目录、限速等设置尚未应用。"
+                logger.warning("Engine platform does not expose local configuration routes")
+            except AppError as error:
+                self._config_error = f"引擎配置应用失败：{error.message}"
 
     async def _refresh(self) -> None:
+        if self._status_supported:
+            try:
+                self._snapshot = await self.client.status()
+                self._snapshot_at = time.monotonic()
+                self._status_error = ""
+            except EngineRouteUnavailable as error:
+                self._status_supported = False
+                self._snapshot = {}
+                self._status_error = f"{error.message} 登录状态与账号信息暂时无法确认。"
+                logger.warning("Engine platform does not expose /device/status")
+            except AppError as error:
+                self._status_error = error.message
+        if time.monotonic() - self._snapshot_at > SNAPSHOT_TTL:
+            self._snapshot = {}
         try:
-            self._snapshot = await self.client.status()
-            self._snapshot_at = time.monotonic()
             health = await self.client.healthz()
             self._running_tasks = _int(health.get("running_count"))
-        except AppError:
-            if time.monotonic() - self._snapshot_at > SNAPSHOT_TTL:
-                self._snapshot = {}
+            self._health_at = time.monotonic()
+            self._health_error = ""
+        except AppError as error:
+            self._health_error = error.message
+            if not self._ready():
+                self._running_tasks = 0
+
+    def _ready(self) -> bool:
+        return bool(self._snapshot) or (
+            self._health_at > 0 and time.monotonic() - self._health_at <= SNAPSHOT_TTL
+        )
 
     def _config_signature(self) -> tuple[object, ...]:
         cfg = self.config
@@ -540,8 +581,15 @@ class EngineService:
         if self.binary() is None:
             return "missing_binary", "未找到 xunlei-pan-cli 程序，请在设置中指定路径。"
         if self.process.alive:
-            if self._snapshot:
-                return "running", ""
+            diagnostics = " ".join(
+                part
+                for part in (self._status_error, self._health_error, self._config_error)
+                if part
+            )
+            if self._ready():
+                return "running", diagnostics
+            if diagnostics:
+                return "starting", f"引擎进程已启动，但本地接口尚未就绪。{diagnostics}"
             return "starting", "下载引擎正在启动…"
         if self._desired and self.process.last_exit_code is not None:
             return "crashed", self._message or f"下载引擎已退出（{self.process.last_exit_code}）。"
@@ -587,6 +635,7 @@ class EngineService:
             device_id=self.api.device_id,
             space=self.api.device_space,
             login_status=login,
+            login_status_known=isinstance(auth, dict) and "status" in auth,
             logged_in=login == "complete" and bool(user.id),
             user=user,
             user_mismatch=bool(user.id and app_user and user.id != app_user),

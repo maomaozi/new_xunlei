@@ -72,6 +72,14 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   with exponential backoff, adopts a running engine through `pan.pid`, restarts it when launch
   settings change and pushes runtime settings to `/device/local_config`. Other runners on the
   host are reported because one device id may only be online once (MQTT kick-out).
+- Readiness: `/device/healthz` is probed independently from optional `/device/status`.
+  A healthy local API means `running` even when the platform omits detailed status (observed
+  on Synology). `login_status_known=false` distinguishes unavailable account information from
+  a confirmed logout; QR polling is login-attempt progress, not proof of current account state.
+  Missing status/config routes are cached until the next launch. Diagnostics are returned in
+  `EngineStatus.message`; unsupported runtime configuration is explicitly reported as unapplied.
+  Failed probes retain the last good observation for at most 12 seconds before reporting that
+  the process is alive but its local API is not ready.
 - Local auth: `.drive/26ebb6810d1737970457e6a91cdbd3d2` holds the JWT HMAC secret, AES-128-ECB
   with key `08e8a6fbfba6fbd6`. Local control routes take `LocalToken: LocalToken <jwt>` with
   claim `key=LocalToken`; the device API takes `pan-auth: <jwt>` with `key=UIAuth`, then calls

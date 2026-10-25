@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 JsonObject = dict[str, Any]
 
 
+class EngineRouteUnavailable(AppError):
+    """An optional local route is absent on this engine platform."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__("engine_error", 502, f"当前引擎平台不支持接口 {path}（HTTP 404）。")
+
+
 class EngineClient:
     def __init__(self, port: int, drive_dir: Path) -> None:
         self.port = port
@@ -73,7 +80,9 @@ class EngineClient:
             )
         except httpx.TransportError as error:
             logger.debug("Engine request failed: %s %s: %r", method, path, error)
-            raise AppError("engine_unavailable", 503) from error
+            raise AppError(
+                "engine_unavailable", 503, "无法连接下载引擎本地接口，请检查控制端口与引擎日志。"
+            ) from error
         if response.status_code in (401, 403):
             # The secret is rewritten when the engine home is replaced; reload it once.
             self._secret = None
@@ -92,6 +101,8 @@ class EngineClient:
         response = await self.request(
             method, path, scope=scope, params=params, json_body=json_body, limit=limit
         )
+        if response.status_code == 404:
+            raise EngineRouteUnavailable(path)
         try:
             data = response.json() if response.content else {}
         except json.JSONDecodeError:
@@ -105,7 +116,12 @@ class EngineClient:
             if isinstance(data, dict):
                 message = str(data.get("error_description") or data.get("error") or "")
             logger.warning("Engine API %s %s -> %d %s", method, path, response.status_code, message)
-            raise AppError("engine_error", 502, f"下载引擎返回错误：{message}" if message else None)
+            raise AppError(
+                "engine_error",
+                502,
+                f"下载引擎接口 {path} 返回错误（HTTP {response.status_code}）"
+                + (f"：{message}" if message else "。"),
+            )
         return data
 
     # ----------------------------------------------------------------- local control

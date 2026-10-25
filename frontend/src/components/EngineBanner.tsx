@@ -4,6 +4,7 @@ import { AlertTriangle, Cpu, LogIn, Play } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { engineApi, errorMessage, type EngineStatus } from '../lib/api'
+import { formatDuration } from '../lib/format'
 import EngineLoginModal from './EngineLoginModal'
 import { Card, IconTile, PillButton } from './ui'
 
@@ -47,8 +48,24 @@ export default function EngineBanner({ status }: { status: EngineStatus | undefi
       </PillButton>
     )
   } else if (status.state === 'starting') {
-    title = '下载引擎正在启动…'
-    detail = '通常需要 10～20 秒完成初始化与上线。'
+    title = status.message && status.message !== '下载引擎正在启动…'
+      ? '下载引擎接口尚未就绪' : '下载引擎正在启动…'
+    detail = `${status.message || '正在等待本地接口响应。'}${status.pid !== null ? ` PID ${status.pid} · 已运行 ${formatDuration(status.uptime_seconds)}` : ''}`
+    action = (
+      <PillButton icon={Cpu} onClick={() => navigate('/engine')}>
+        查看引擎与日志
+      </PillButton>
+    )
+  } else if (status.state === 'running' && (
+    status.login_status_known === false || (status.message && status.logged_in && !status.user_mismatch)
+  )) {
+    title = '下载引擎已运行，部分状态不可用'
+    detail = status.message || '本地接口正常响应，当前平台无法提供登录状态与账号信息。'
+    action = (
+      <PillButton icon={Cpu} onClick={() => navigate('/engine')}>
+        查看详情
+      </PillButton>
+    )
   } else if (!status.logged_in) {
     title = '下载引擎尚未登录'
     detail = '引擎使用独立的迅雷会话，扫码登录一次后会自动续期。'
