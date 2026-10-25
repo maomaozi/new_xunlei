@@ -484,6 +484,10 @@ export interface DownloadOperation {
   message: string
   cleanup_errors?: string[]
   transport?: 'touch' | 'runner_proxy' | ''
+  locally_removed?: boolean
+  cloud_synced?: boolean
+  local_history_retained?: boolean
+  delete_files_requested?: boolean
 }
 
 export interface DownloadActionResponse {

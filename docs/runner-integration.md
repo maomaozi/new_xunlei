@@ -66,3 +66,57 @@ The frontend pins `playwright-core` as a dev dependency. Install its matching Ch
 ## Native verification limitation
 
 The parent reviewer confirmed that deleting the dedicated native task's cloud record can return HTTP 200 and subsequent cloud lookup HTTP 404 while its queued `Process` entry remains locally present. The implementation consequently does not equate successful proxy deletion with confirmed local removal: it reports an unconfirmed outcome and preserves files until fresh local sources prove the engine has stopped retaining the task. No actual native download or mapped pure-touch workflow was proven in the available live environment. The simulated E2E exercises those controlled state transitions reproducibly; it is not evidence of native throughput or offline-control support on Synology.
+
+## 2026-10-25: persistent deletion reconciliation
+
+The list previously kept timeout operations indefinitely, even after local removal settled.
+An unmapped native LocalTaskInfo record could also keep an obsolete RUNNING/ERROR phase after
+successful cloud deletion and disappearance from both Process and Running. That historical
+record is distinct from a live or mapped kernel task.
+
+Deletion now reconciles late outcomes on observation. For an unmapped native history record,
+successful cloud deletion and fresh absence from both live inventories retire the application
+row with a SHA-256 fingerprint of the native record. The native database remains read-only;
+`local_history_retained=true` reports that its metadata still exists, without falsely setting
+`locally_removed=true`. An identical record stays retired across polling and history reloads;
+a changed record, new kernel mapping, or live reappearance exposes the task again. Confirmed
+deletions cannot be reopened by delayed optional cloud enrichment. A new append-only SQLite
+migration persists the fingerprint without resetting existing data.
+
+File deletion remains explicit and bounded to associated paths. Cleanup intent persists with
+the operation; late confirmation leaves requested cleanup retryable rather than unlinking files
+during a GET. Legacy operations that did not store cleanup intent preserve their files.
+Native batch deletion encodes repeated `task_ids` query parameters rather than comma joining.
+
+Regression coverage in `backend/tests/test_runner_tasks.py` includes delayed deletion after a
+history reload, failed local sources, cloud-only history, stale cloud enrichment, native history
+retirement with/without file cleanup, repeated deletion, changed native mappings, and retained
+Process/Running/kernel state that must prevent confirmation and cleanup.
+
+Read-only verification used a temporary private SQLite backup and the actual Runner debug/Bolt
+snapshots, with cloud requests disabled. All 17 pre-existing timeout deletions disappeared from
+the copied inventory and remained absent after history reload; 9 retained unmapped native
+records, 8 had no local record. Both local sources were available. Only the temporary copy was
+migrated/updated and it was removed afterward. The production database, downloaded files and
+running services were unchanged. This verifies reconciliation against observed native data;
+it does not claim physical removal of the engine's historical metadata.
+
+Final checks: backend Ruff lint/format, mypy and all 87 pytest tests passed; frontend Bun
+lint, all 23 Vitest tests, TypeScript and Vite build passed. No service restart or deployment
+was performed; the running backend needs to load these changes before production history
+is reconciled.
+
+## 2026-10-25 deployment verification
+
+Deployed on explicit user request through the existing `xunlei-web.service` user service.
+A private SQLite backup and file baseline were saved under the ignored `backend/data/backups/`
+directory before restart. Startup applied schema migration 4 without resetting data. The
+frontend responds successfully, the engine is running and logged in, and local observations
+report no source errors. All 17 previously visible timeout deletions are absent from the live
+inventory; the total changed from 293 to 276. All 18 associated existing files retained their
+size, inode and modification time, and files up to 1 MiB also retained their SHA-256 digest.
+
+The exact deletion-fix commit contents were also exported over `main` into a temporary
+checkout, excluding unrelated pre-existing worktree changes. Backend Ruff lint/format,
+mypy and all 75 tests passed there; frontend lint, all 23 tests and production build passed.
+Post-restart polling confirmed list/live totals of 276 and HTTP 404 for all 17 deleted details.

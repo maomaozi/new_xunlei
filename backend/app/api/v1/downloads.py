@@ -170,7 +170,11 @@ async def retry(body: DownloadIdsRequest, engine: EngineDep) -> DownloadCreateRe
     description=(
         "Remove the native task and optionally reconcile cloud persistence. `delete_files` "
         "cleans associated paths inside configured download roots only after local removal "
-        "is observed. Per-task results distinguish local removal, cloud sync, timeout and "
+        "is observed, or cloud deletion succeeds and both live execution and the kernel "
+        "mapping are absent. Passive native history is retired with a persisted fingerprint "
+        "and reported by `local_history_retained`; the engine database is never edited. "
+        "Late confirmation retires history automatically; pending file cleanup remains "
+        "retryable. Per-task results distinguish local removal, cloud sync, timeout and "
         "partial file cleanup. Access: Public."
     ),
     responses=XUNLEI_ERRORS,

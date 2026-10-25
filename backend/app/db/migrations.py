@@ -60,6 +60,9 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (instance, task_id)
     );
     """,
+    """
+    ALTER TABLE runner_tasks ADD COLUMN retired_record TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 

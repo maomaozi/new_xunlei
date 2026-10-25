@@ -61,7 +61,7 @@ class EngineClient:
         path: str,
         *,
         scope: str = UI_SCOPE,
-        params: Mapping[str, str | int] | None = None,
+        params: Mapping[str, str | int] | httpx.QueryParams | None = None,
         json_body: object | None = None,
         limit: float | None = None,
     ) -> httpx.Response:
@@ -94,7 +94,7 @@ class EngineClient:
         path: str,
         *,
         scope: str = UI_SCOPE,
-        params: Mapping[str, str | int] | None = None,
+        params: Mapping[str, str | int] | httpx.QueryParams | None = None,
         json_body: object | None = None,
         limit: float | None = None,
     ) -> Any:
@@ -255,5 +255,7 @@ class EngineClient:
 
     async def delete_tasks(self, ids: list[str], space: str) -> None:
         await self.call(
-            "DELETE", "/drive/v1/tasks", params={"task_ids": ",".join(ids), "space": space}
+            "DELETE",
+            "/drive/v1/tasks",
+            params=httpx.QueryParams([*(("task_ids", tid) for tid in ids), ("space", space)]),
         )

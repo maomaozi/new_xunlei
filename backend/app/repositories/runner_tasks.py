@@ -14,6 +14,7 @@ class SavedTask:
     paths: list[str]
     deleted: bool
     operation: DownloadOperation | None
+    retired_record: str = ""
 
 
 class RunnerTaskRepository:
@@ -35,16 +36,18 @@ class RunnerTaskRepository:
                 json.loads(str(row["paths"])),
                 bool(row["deleted"]),
                 operation,
+                str(row["retired_record"]),
             )
         return result
 
     def save(self, instance: str, saved: SavedTask) -> None:
         self.db.execute(
             "INSERT INTO runner_tasks "
-            "(instance, task_id, payload, dl_task_id, paths, deleted, operation) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(instance, task_id) DO UPDATE SET "
+            "(instance, task_id, payload, dl_task_id, paths, deleted, operation, retired_record) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(instance, task_id) DO UPDATE SET "
             "payload=excluded.payload, dl_task_id=excluded.dl_task_id, paths=excluded.paths, "
-            "deleted=excluded.deleted, operation=excluded.operation",
+            "deleted=excluded.deleted, operation=excluded.operation, "
+            "retired_record=excluded.retired_record",
             (
                 instance,
                 saved.task.id,
@@ -53,6 +56,7 @@ class RunnerTaskRepository:
                 json.dumps(saved.paths),
                 int(saved.deleted),
                 saved.operation.model_dump_json() if saved.operation else "{}",
+                saved.retired_record,
             ),
         )
 

@@ -1,6 +1,8 @@
 """One observed Runner inventory shared by list, detail, live and mutations."""
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -52,6 +54,26 @@ def newer_timestamp(candidate: str, observed: str) -> bool:
         return left.astimezone(UTC) > right.astimezone(UTC)
     except ValueError:
         return False
+
+
+def record_fingerprint(record: dict[str, Any] | None) -> str:
+    if record is None:
+        return ""
+    return hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
+
+
+def passive_history(record: dict[str, Any] | None, operation: DownloadOperation) -> bool:
+    return bool(record is not None and not record.get("DLTaskId") and operation.cloud_synced)
+
+
+def observed_task_ids(raw: dict[str, Any] | None) -> set[str]:
+    if raw is None:
+        return set()
+    ids = {str(row.get("id")) for row in raw.get("Process", []) if isinstance(row, dict)}
+    running = raw.get("Running")
+    if isinstance(running, dict):
+        ids.update(str(tid) for tid, active in running.items() if active)
+    return ids
 
 
 def cleanup_paths(paths: list[str], roots: list[Path]) -> list[str]:
@@ -166,16 +188,8 @@ class RunnerTasks:
                 async with self.lock:
                     if self.identity == identity:
                         self.cloud, self.cloud_error = tasks, ""
-                        cloud_ids = {task.id for task in tasks}
-                        for tid, saved in self.history.items():
-                            if saved.deleted and tid in cloud_ids:
-                                saved.deleted = False
-                                saved.operation = DownloadOperation(
-                                    action="delete",
-                                    status="partial",
-                                    message="云端仍保留此任务，请重试删除。",
-                                    locally_removed=True,
-                                )
+                        # Optional cloud enrichment can lag behind a confirmed deletion.
+                        # Only a fresh local observation may reopen a deleted history row.
                         self.collected_at = 0.0
         except AppError as error:
             if self.identity == identity:
@@ -378,6 +392,7 @@ class RunnerTasks:
                 phase = "PENDING" if live_task.status == "queued" else live_task.status.upper()
                 rows[live_task.id].phase = "PHASE_TYPE_" + phase
                 live_ids.add(live_task.id)
+        live_ids.update(observed_task_ids(self.live_raw))
         output: list[DownloadTask] = []
         changed: list[SavedTask] = []
         for tid, task in rows.items():
@@ -390,6 +405,31 @@ class RunnerTasks:
             task.version = self.version
             task.operation = saved.operation
             operation = saved.operation
+            if (
+                operation
+                and operation.action == "delete"
+                and operation.status in ("pending", "submitted", "timeout", "partial", "failed")
+                and db_valid
+                and live_valid
+                and (record is None or passive_history(record, operation))
+                and tid not in live_ids
+            ):
+                # Deletion may settle after the HTTP deadline or a backend restart.
+                # A failed source must never count as an empty local inventory.
+                operation.local_history_retained = record is not None
+                operation.locally_removed = record is None
+                if operation.cloud_synced:
+                    if operation.delete_files_requested or operation.cleanup_errors:
+                        operation.status = "partial"
+                        operation.message = "任务已移除，文件清理尚未完成，请重试删除。"
+                    else:
+                        operation.status = "confirmed"
+                        operation.message = ""
+                        saved.deleted = True
+                        saved.retired_record = record_fingerprint(record)
+                else:
+                    operation.status = "partial"
+                    operation.message = "本地任务已移除，云端同步尚未完成，请重试删除。"
             if operation and operation.status in ("submitted", "timeout") and not task.stale:
                 reached = (
                     (operation.action == "pause" and task.status == "paused")
@@ -412,10 +452,14 @@ class RunnerTasks:
             cleanup_retry = bool(
                 saved.operation
                 and saved.operation.action == "delete"
-                and saved.operation.locally_removed
+                and (saved.operation.locally_removed or saved.operation.local_history_retained)
             )
-            if saved.deleted and (tid in db_rows or tid in live_ids):
+            if saved.deleted and (
+                tid in live_ids
+                or (record is not None and record_fingerprint(record) != saved.retired_record)
+            ):
                 saved.deleted = False
+                saved.retired_record = ""
                 saved.operation = DownloadOperation(
                     action="delete",
                     status="partial",
@@ -423,8 +467,7 @@ class RunnerTasks:
                     locally_removed=False,
                 )
                 task.operation = saved.operation
-            # A mapping is required for local control; completed cloud-only history can be
-            # removed through the Runner proxy, but is never falsely marked locally removed.
+            # Unmapped history is retired through the proxy only after live execution ends.
             task.capabilities = TaskCapabilities(
                 pause=running and controllable and task.status in ("running", "queued"),
                 resume=running and controllable and task.status == "paused",
@@ -445,6 +488,7 @@ class RunnerTasks:
                 + saved.dl_task_id
                 + str(saved.deleted)
                 + str(saved.paths)
+                + saved.retired_record
             )
             if self.persisted.get(tid) != fingerprint:
                 changed.append(saved)
@@ -528,7 +572,9 @@ class RunnerTasks:
     async def _action(self, tid: str, action: str, remove: bool) -> DownloadActionResult:
         cfg = self.service.config
         task: DownloadTask | None = None
-        operation = DownloadOperation(action=action, status="pending")
+        operation = DownloadOperation(
+            action=action, status="pending", delete_files_requested=action == "delete" and remove
+        )
         identity: LocalIdentity | None = None
         try:
             async with asyncio.timeout(cfg.control_timeout_seconds):
@@ -537,12 +583,17 @@ class RunnerTasks:
                 assert identity is not None
                 existing = self.history.get(tid)
                 if existing and existing.deleted and action == "delete":
+                    if existing.operation:
+                        return DownloadActionResult(task_id=tid, **existing.operation.model_dump())
                     return DownloadActionResult(task_id=tid, action=action, status="confirmed")
                 task = await self.get(tid)
                 cleanup_retry = bool(
                     existing
                     and existing.operation
-                    and existing.operation.locally_removed
+                    and (
+                        existing.operation.locally_removed
+                        or existing.operation.local_history_retained
+                    )
                     and existing.operation.action == "delete"
                     and action == "delete"
                 )
@@ -561,17 +612,19 @@ class RunnerTasks:
                     paths = list(saved.paths)
                     previous = saved.operation
                     removed_before = bool(
-                        previous and previous.action == "delete" and previous.locally_removed
+                        previous
+                        and previous.action == "delete"
+                        and (previous.locally_removed or previous.local_history_retained)
                     )
-                    operation.locally_removed = removed_before
+                    operation.locally_removed = bool(previous and previous.locally_removed)
+                    operation.local_history_retained = bool(
+                        previous and previous.local_history_retained
+                    )
                     operation.cloud_synced = bool(previous and previous.cloud_synced)
                     db_ids = (
                         {str(row["TaskId"]) for row in self.local.tasks} if self.local else set()
                     )
-                    had_local = tid in db_ids or any(
-                        str(row.get("id")) == tid
-                        for row in (self.live_raw or {}).get("Process", [])
-                    )
+                    had_local = tid in db_ids or tid in observed_task_ids(self.live_raw)
                     use_touch = bool(
                         saved.dl_task_id and tid in db_ids and cfg.platform != "synology"
                     )
@@ -632,16 +685,22 @@ class RunnerTasks:
                             if self.local
                             else set()
                         )
-                        memory_ids = {
-                            str(row.get("id")) for row in (self.live_raw or {}).get("Process", [])
-                        }
+                        memory_ids = observed_task_ids(self.live_raw)
+                        record = (
+                            next(
+                                (row for row in self.local.tasks if str(row["TaskId"]) == tid),
+                                None,
+                            )
+                            if self.local
+                            else None
+                        )
                         fresh = current is not None and not current.stale
                         removed_now = (
                             self.local is not None
                             and self.live_raw is not None
-                            and tid not in local_ids
+                            and (tid not in local_ids or passive_history(record, operation))
                             and tid not in memory_ids
-                            and (had_local or removed_before)
+                            and (had_local or removed_before or operation.cloud_synced)
                         )
                         confirmed = (
                             (
@@ -675,7 +734,8 @@ class RunnerTasks:
                                 else ""
                             )
                             if action == "delete":
-                                operation.locally_removed = True
+                                operation.local_history_retained = record is not None
+                                operation.locally_removed = record is None
                                 if cfg.delete_cloud_sync and not operation.cloud_synced:
                                     try:
                                         await proxy()
@@ -699,6 +759,7 @@ class RunnerTasks:
                                             "任务已移除，部分文件未能清理，请重试删除。",
                                         )
                                 self.history[tid].deleted = operation.status == "confirmed"
+                                self.history[tid].retired_record = record_fingerprint(record)
                             break
                         if (
                             cfg.local_control_fallback

@@ -131,6 +131,13 @@ class DownloadOperation(BaseModel):
     database_phase: str = ""
     locally_removed: bool = False
     cloud_synced: bool = False
+    local_history_retained: bool = Field(
+        default=False,
+        description="No live task or kernel mapping remains; passive native history is retained",
+    )
+    delete_files_requested: bool = Field(
+        default=False, description="Persisted cleanup intent; legacy operations preserve files"
+    )
 
 
 class DownloadActionResult(DownloadOperation):

@@ -34,6 +34,7 @@ class FakeRunner:
     cloud: list[DriveTask] = field(default_factory=list)
     requests: list[tuple[str, str]] = field(default_factory=list)
     payloads: list[dict[str, Any]] = field(default_factory=list)
+    deleted_batches: list[list[str]] = field(default_factory=list)
     alive: bool = True
     database_error: bool = False
     cloud_error: bool = True
@@ -43,6 +44,8 @@ class FakeRunner:
     touch_delay: float = 0
     lose_create_response: bool = False
     retain_deleted: bool = False
+    retain_local_history: bool = False
+    running_only: set[str] = field(default_factory=set)
     fail_delete_sync: bool = False
     txid: int = 1
 
@@ -106,9 +109,12 @@ class FakeRunner:
                 json={
                     "Process": list(self.memory.values()),
                     "Running": {
-                        tid: True
-                        for tid, item in self.memory.items()
-                        if item["phase"] == "PHASE_TYPE_RUNNING"
+                        **dict.fromkeys(self.running_only, True),
+                        **{
+                            tid: True
+                            for tid, item in self.memory.items()
+                            if item["phase"] == "PHASE_TYPE_RUNNING"
+                        },
                     },
                 },
             )
@@ -124,7 +130,8 @@ class FakeRunner:
             event = request.url.params["event"]
             if event == "delete":
                 if not self.retain_deleted:
-                    self.disk.pop(tid, None)
+                    if not self.retain_local_history:
+                        self.disk.pop(tid, None)
                     self.memory.pop(tid, None)
             else:
                 self.transition(
@@ -163,11 +170,14 @@ class FakeRunner:
         if path == "/drive/v1/tasks" and request.method == "DELETE":
             if self.fail_delete_sync:
                 return httpx.Response(503, json={"error": "upstream_unavailable"})
-            tid = request.url.params["task_ids"]
-            if not self.retain_deleted:
-                self.disk.pop(tid, None)
-                self.memory.pop(tid, None)
-            self.cloud = [item for item in self.cloud if item.id != tid]
+            ids = request.url.params.get_list("task_ids")
+            self.deleted_batches.append(ids)
+            for tid in ids:
+                if not self.retain_deleted:
+                    if not self.retain_local_history:
+                        self.disk.pop(tid, None)
+                    self.memory.pop(tid, None)
+            self.cloud = [item for item in self.cloud if item.id not in ids]
             return httpx.Response(200, json={})
         raise AssertionError((request.method, path))
 
@@ -368,6 +378,207 @@ def test_proxy_delete_retaining_memory_never_cleans_files(
     ).json()
     assert not response["ok"] and response["results"][0]["status"] == "timeout"
     assert path.exists() and not container.engine.tasks.history["retained"].deleted
+
+
+def test_native_batch_delete_uses_repeated_query_parameters(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("first")
+    fake.add("second")
+    client.portal.call(  # type: ignore[union-attr]
+        container.engine.require_running().delete_tasks,
+        ["first", "second"],
+        container.api.device_space,
+    )
+    assert fake.deleted_batches == [["first", "second"]]
+    assert fake.disk == fake.memory == {}
+
+
+@pytest.mark.parametrize("delete_files", [False, True])
+def test_delete_settles_after_timeout_and_history_reload(
+    client: TestClient,
+    runner: tuple[FakeRunner, Container],
+    delete_files: bool,
+) -> None:
+    fake, container = runner
+    fake.add("late-delete", mapped=False)
+    fake.retain_deleted = True
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    path = root / "keep.bin"
+    path.write_bytes(b"downloaded")
+    fake.disk["late-delete"]["FullPath"] = str(path)
+    response = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["late-delete"], "delete_files": delete_files}
+    ).json()
+    assert response["results"][0]["status"] == "timeout"
+    fake.disk.clear()
+    fake.memory.clear()
+    # Load persisted state just as a backend restart would, including cleanup intent.
+    container.engine.tasks.identity = None
+    listed = client.get("/api/v1/downloads").json()
+    saved = container.engine.tasks.history["late-delete"]
+    assert saved.operation is not None and saved.operation.locally_removed
+    assert path.read_bytes() == b"downloaded"
+    if delete_files:
+        assert listed["summary"]["total"] == 1
+        assert saved.operation.status == "partial"
+        fake.retain_deleted = False
+        retried = client.post(
+            "/api/v1/downloads/delete", json={"ids": ["late-delete"], "delete_files": True}
+        ).json()
+        assert retried["ok"] and not path.exists()
+    else:
+        assert listed["tasks"] == [] and listed["summary"]["total"] == 0
+        assert saved.deleted and saved.operation.status == "confirmed"
+        assert client.get("/api/v1/downloads/late-delete").status_code == 404
+        assert client.get("/api/v1/downloads/live").json()["downloads"] == []
+        container.engine.tasks.identity = None
+        assert client.get("/api/v1/downloads").json()["tasks"] == []
+
+
+@pytest.mark.parametrize("unavailable", ["database", "live"])
+def test_late_delete_needs_both_local_sources(
+    client: TestClient, runner: tuple[FakeRunner, Container], unavailable: str
+) -> None:
+    fake, container = runner
+    fake.add("unknown-delete", mapped=False)
+    fake.retain_deleted = True
+    container.settings.current.engine.local_control_fallback = True
+    client.post("/api/v1/downloads/delete", json={"ids": ["unknown-delete"], "delete_files": False})
+    fake.disk.clear()
+    fake.memory.clear()
+    if unavailable == "database":
+        fake.database_error = True
+    else:
+        fake.alive = False
+    container.engine.tasks.invalidate()
+    listed = client.get("/api/v1/downloads").json()
+    assert len(listed["tasks"]) == 1
+    saved = container.engine.tasks.history["unknown-delete"]
+    assert not saved.deleted and saved.operation is not None
+    assert not saved.operation.locally_removed
+
+
+def test_cloud_only_delete_confirms_empty_local_inventory(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.cloud_error = False
+    fake.cloud = [
+        DriveTask.model_validate(
+            {"id": "cloud-history", "type": "user#download-url", "phase": "PHASE_TYPE_COMPLETE"}
+        )
+    ]
+    container.settings.current.engine.local_control_fallback = True
+    client.get("/api/v1/downloads")
+    client.portal.call(asyncio.sleep, 0.05)  # type: ignore[union-attr]
+    response = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["cloud-history"], "delete_files": False}
+    ).json()
+    assert response["ok"] and response["results"][0]["locally_removed"]
+    assert client.get("/api/v1/downloads").json()["tasks"] == []
+
+
+def test_old_cloud_enrichment_cannot_resurrect_confirmed_delete(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("deleted")
+    assert client.post(
+        "/api/v1/downloads/delete", json={"ids": ["deleted"], "delete_files": False}
+    ).json()["ok"]
+    fake.cloud_error = False
+    fake.cloud = [
+        DriveTask.model_validate(
+            {"id": "deleted", "type": "user#download-url", "phase": "PHASE_TYPE_RUNNING"}
+        )
+    ]
+    identity = container.engine.tasks.identity
+    assert identity is not None
+    client.portal.call(container.engine.tasks._enrich, identity)  # type: ignore[union-attr]
+    assert client.get("/api/v1/downloads").json()["tasks"] == []
+    # Actual local reappearance still exposes the task for another deletion.
+    fake.add("deleted")
+    container.engine.tasks.invalidate()
+    listed = client.get("/api/v1/downloads").json()
+    assert listed["tasks"][0]["operation"]["status"] == "partial"
+    assert not container.engine.tasks.history["deleted"].deleted
+
+
+@pytest.mark.parametrize("delete_files", [False, True])
+def test_unmapped_native_history_is_retired_without_resurrection(
+    client: TestClient, runner: tuple[FakeRunner, Container], delete_files: bool
+) -> None:
+    fake, container = runner
+    fake.add("native-history", mapped=False)
+    fake.retain_local_history = True
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    path = root / "history.bin"
+    path.write_bytes(b"preserve unless requested")
+    fake.disk["native-history"]["FullPath"] = str(path)
+    result = client.post(
+        "/api/v1/downloads/delete",
+        json={"ids": ["native-history"], "delete_files": delete_files},
+    ).json()
+    assert result["ok"] and result["results"][0]["local_history_retained"]
+    assert not result["results"][0]["locally_removed"]
+    assert "native-history" in fake.disk
+    assert path.exists() is not delete_files
+    saved = container.engine.tasks.history["native-history"]
+    assert saved.deleted and saved.retired_record
+    container.engine.tasks.identity = None
+    assert client.get("/api/v1/downloads").json()["tasks"] == []
+    assert client.get("/api/v1/downloads/live").json()["downloads"] == []
+    assert client.get("/api/v1/downloads/native-history").status_code == 404
+    repeated = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["native-history"], "delete_files": False}
+    ).json()
+    assert repeated["ok"] and repeated["results"][0]["local_history_retained"]
+    assert len([r for r in fake.requests if r == ("DELETE", "/drive/v1/tasks")]) == 1
+    # A changed native record cannot be hidden by an old tombstone.
+    fake.disk["native-history"]["DLTaskId"] = "new-kernel-id"
+    container.engine.tasks.invalidate()
+    reappeared = client.get("/api/v1/downloads").json()["tasks"]
+    assert len(reappeared) == 1 and reappeared[0]["operation"]["status"] == "partial"
+
+
+def test_mapped_native_history_is_not_treated_as_passive(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("still-mapped")
+    fake.retain_local_history = True
+    container.settings.current.engine.local_control_fallback = True
+    result = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["still-mapped"], "delete_files": False}
+    ).json()
+    assert not result["ok"] and result["results"][0]["status"] == "timeout"
+    assert not container.engine.tasks.history["still-mapped"].deleted
+
+
+def test_running_marker_blocks_retirement_and_file_cleanup(
+    client: TestClient, runner: tuple[FakeRunner, Container]
+) -> None:
+    fake, container = runner
+    fake.add("running-only", mapped=False)
+    fake.retain_local_history = True
+    fake.running_only.add("running-only")
+    container.settings.current.engine.local_control_fallback = True
+    root = Path(container.settings.current.engine.download_dir)
+    root.mkdir()
+    path = root / "active.bin"
+    path.write_bytes(b"active")
+    fake.disk["running-only"]["FullPath"] = str(path)
+    result = client.post(
+        "/api/v1/downloads/delete", json={"ids": ["running-only"], "delete_files": True}
+    ).json()
+    assert not result["ok"] and result["results"][0]["status"] == "timeout"
+    assert path.exists() and not container.engine.tasks.history["running-only"].deleted
 
 
 def test_safe_multifile_cleanup_and_retry_partial(

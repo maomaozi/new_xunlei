@@ -114,8 +114,16 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
 - Deletion: preserve associated file paths before mutation, observe local removal, then
   reconcile cloud persistence and optionally unlink only associated files under configured
   roots. Directories are removed only when empty. Partial cleanup remains retryable.
-  Real protocol probes found cloud DELETE 200/GET404 can coexist with a retained queued
-  `Process` entry; this is reported as unconfirmed and disk contents are retained.
+  Successful cloud deletion plus fresh absence from both `Process` and `Running` can also
+  retire an unmapped LocalTaskInfo history record. SQLite stores that native record's
+  fingerprint, so unchanged native history cannot resurrect the deleted list item after
+  refresh or restart. Changed native records or live reappearance expose it again. The API
+  reports `local_history_retained` separately from `locally_removed`; native Bolt records
+  are never edited. A remaining kernel mapping or live task still prevents confirmation
+  and file cleanup. Late deletion is reconciled during polling, including legacy timeouts;
+  explicit file cleanup intent persists across restarts and remains retryable. Legacy
+  operations without cleanup intent preserve files. Delayed cloud enrichment cannot reopen
+  confirmed deletions.
 - The database adapter validates Bolt metadata checksums/transaction IDs and decodes Gob
   wire descriptors. It uses exact `<user>.taskinfo.db/LocalTaskInfo` and
   `<user>.files/files/LocalFile` buckets, explicit device/client identity, worker-thread reads
