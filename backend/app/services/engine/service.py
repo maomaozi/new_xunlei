@@ -2,10 +2,9 @@
 
 The engine (`xunlei-pan-cli -q run runner`) embeds xldownloadlib (P2SP/BT/magnet/ed2k with
 VIP acceleration) and a task runner that executes cloud tasks targeted at its device space.
-Downloads are therefore created as cloud tasks (`POST /drive/v1/task`, `params.target` =
-`device_id#<id>`); the engine receives them over MQTT, downloads to its folders and reports
-progress back into the task (`params.speed`, `real_path`, `error`, ...). Pause/resume is a
-`spec` phase patch, which the engine applies within a second.
+Task creation uses the Runner loopback proxy (`POST /drive/v1/task`); its upstream
+cloud dependency remains. Local database and debug snapshots drive the shared inventory;
+cloud data is optional enrichment. See `tasks.py` for confirmed lifecycle operations.
 
 The engine signs in with its own QR login so its refresh-token chain stays independent of
 this app's (Xunlei rotates refresh tokens, two holders of one chain would log each other out).
@@ -24,8 +23,8 @@ from typing import Literal
 from app.core.config import BACKEND_DIR
 from app.core.errors import AppError
 from app.schemas.engine import (
+    DownloadActionResponse,
     DownloadCreateResponse,
-    DownloadCreateResult,
     DownloadFilter,
     DownloadList,
     DownloadSummary,
@@ -57,9 +56,9 @@ from app.services.engine.process import (
     rotate_log,
     tail_log,
 )
+from app.services.engine.tasks import RunnerTasks
 from app.services.settings_store import SettingsStore
 from app.services.xunlei.api import XunleiApi
-from app.services.xunlei.links import guess_name
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +234,7 @@ def overlay(task: DownloadTask, live: LiveTask) -> DownloadTask:
     if live.size:
         update["size"] = live.size
         update["done_bytes"] = live.done_bytes
-    if live.local_path and not task.local_path:
+    if live.local_path:
         update["local_path"] = live.local_path
     return task.model_copy(update=update)
 
@@ -307,6 +306,7 @@ class EngineService:
         self._watchdog: asyncio.Task[None] | None = None
         self._enabled = settings.current.engine.enabled
         settings.subscribe(self._on_settings_changed)
+        self.tasks = RunnerTasks(self)
 
     # ------------------------------------------------------------------ settings
 
@@ -396,6 +396,7 @@ class EngineService:
         self._watchdog = asyncio.create_task(self._watch(), name="engine-watchdog")
 
     async def stop_service(self) -> None:
+        await self.tasks.close()
         if self._watchdog is not None:
             self._watchdog.cancel()
             await asyncio.gather(self._watchdog, return_exceptions=True)
@@ -703,143 +704,30 @@ class EngineService:
         return tasks
 
     async def live(self) -> LiveDownloads:
-        """In-memory task state, shared by concurrent callers for a short moment."""
-        client = self.require_running()
-        async with self._live_lock:
-            if self._live is None or time.monotonic() - self._live_at > LIVE_TTL:
-                self._live = parse_live(await client.debug_snapshot())
-                self._live_at = time.monotonic()
-            return self._live
-
-    async def _live_by_id(self) -> dict[str, LiveTask]:
-        if not self.config.live_progress or not self.process.alive:
-            return {}
-        try:
-            return {task.id: task for task in (await self.live()).tasks}
-        except AppError as error:
-            logger.debug("Live engine state unavailable: %s", error.message)
-            return {}
+        return await self.tasks.live()
 
     async def list_downloads(self, status_filter: DownloadFilter) -> DownloadList:
-        live = await self._live_by_id()
-        # Statuses follow the in-memory engine state, so filter after overlaying it; the cloud
-        # query still uses the phase filter (a task the engine just finished is fetched again
-        # once the cloud catches up).
-        tasks = [
-            overlay(task, live[task.id]) if task.id in live else task
-            for task in map(to_download, await self._engine_tasks(FILTER_PHASES[status_filter]))
-        ]
-        wanted = FILTER_STATUSES[status_filter]
-        tasks = [t for t in tasks if t.status in wanted]
-        if status_filter == "all":
-            self._summary = summarize(tasks)
-            self._summary_at = time.monotonic()
-        elif self._summary is None or time.monotonic() - self._summary_at > SUMMARY_TTL:
-            every = [to_download(t) for t in await self._engine_tasks(ENGINE_PHASES)]
-            self._summary = summarize(every)
-            self._summary_at = time.monotonic()
-        summary = self._summary.model_copy()
-        if status_filter == "active":
-            summary.active = len(tasks)
-            summary.speed = sum(t.speed for t in tasks)
-        return DownloadList(tasks=tasks, summary=summary, next_page_token="")
-
-    def _invalidate_summary(self) -> None:
-        self._summary_at = 0.0
+        return await self.tasks.list_downloads(status_filter)
 
     async def get_download(self, task_id: str) -> DownloadTask:
-        task = to_download(await self.api.get_task(task_id, self.api.device_space))
-        live = (await self._live_by_id()).get(task_id)
-        return overlay(task, live) if live else task
+        return await self.tasks.get(task_id)
 
     async def add_links(
         self, urls: list[str], *, name: str, files: list[int] | None, folder_id: str
     ) -> DownloadCreateResponse:
-        cleaned = [url.strip() for url in urls if url.strip()]
-        results: list[DownloadCreateResult] = []
-        for url in cleaned:
-            title = name.strip() if len(cleaned) == 1 and name.strip() else guess_name(url)
-            try:
-                task = await self.api.engine_add(
-                    url, title or "download", folder_id=folder_id, files=files
-                )
-                results.append(DownloadCreateResult(source=url, ok=True, task_id=task.id))
-            except AppError as error:
-                results.append(DownloadCreateResult(source=url, ok=False, error=error.message))
-        self._invalidate_summary()
-        return DownloadCreateResponse(results=results)
+        return await self.tasks.add_links(urls, name=name, files=files, folder_id=folder_id)
 
     async def add_cloud_files(self, file_ids: list[str], folder_id: str) -> DownloadCreateResponse:
-        results: list[DownloadCreateResult] = []
-        for file_id in dict.fromkeys(file_ids):
-            try:
-                info = await self.api.get_file(file_id)
-                task = await self.api.engine_fetch(file_id, info.name, folder_id=folder_id)
-                results.append(DownloadCreateResult(source=file_id, ok=True, task_id=task.id))
-            except AppError as error:
-                results.append(DownloadCreateResult(source=file_id, ok=False, error=error.message))
-        self._invalidate_summary()
-        return DownloadCreateResponse(results=results)
+        return await self.tasks.add_cloud_files(file_ids, folder_id)
 
-    async def _task(self, task_id: str) -> DriveTask:
-        return await self.api.get_task(task_id, self.api.device_space)
-
-    async def set_paused(self, task_ids: list[str], paused: bool) -> int:
-        changed = 0
-        phase = "pause" if paused else "running"
-        for task_id in task_ids:
-            task = await self._task(task_id)
-            if paused and task.phase not in ("PHASE_TYPE_PENDING", "PHASE_TYPE_RUNNING"):
-                continue
-            if not paused and task.phase != "PHASE_TYPE_PAUSED":
-                continue
-            await self.api.update_task(
-                task, {"spec": json.dumps({"phase": phase})}, self.api.device_space
-            )
-            changed += 1
-        self._invalidate_summary()
-        return changed
+    async def set_paused(self, task_ids: list[str], paused: bool) -> DownloadActionResponse:
+        return await self.tasks.action(task_ids, "pause" if paused else "resume")
 
     async def retry(self, task_ids: list[str]) -> DownloadCreateResponse:
-        """Failed tasks cannot be moved back to running; submit an equivalent task instead."""
-        results: list[DownloadCreateResult] = []
-        for task_id in task_ids:
-            task = await self._task(task_id)
-            params = task.params
-            folder = params.get("parent_folder_id", "")
-            try:
-                if task.type == "user#download":
-                    new = await self.api.engine_fetch(
-                        params.get("file_id", ""), task.name, folder_id=folder
-                    )
-                else:
-                    files = parse_indexes(params.get("sub_file_index", "")) or None
-                    new = await self.api.engine_add(
-                        params.get("url", ""), task.name, folder_id=folder, files=files
-                    )
-                await self.api.delete_tasks(
-                    [task.id], delete_files=False, space=self.api.device_space
-                )
-                results.append(DownloadCreateResult(source=task.id, ok=True, task_id=new.id))
-            except AppError as error:
-                results.append(DownloadCreateResult(source=task.id, ok=False, error=error.message))
-        self._invalidate_summary()
-        return DownloadCreateResponse(results=results)
+        return await self.tasks.retry(task_ids)
 
-    async def delete(self, task_ids: list[str], delete_files: bool | None) -> int:
-        """Delete tasks; with files, also their data inside the engine download folders.
-
-        The engine keeps the data of finished tasks even with `delete_files=true`, so the
-        `real_path` of each task is removed here. Returns the number of removed paths.
-        """
+    async def delete(
+        self, task_ids: list[str], delete_files: bool | None
+    ) -> DownloadActionResponse:
         remove = self.config.delete_files_with_task if delete_files is None else delete_files
-        paths: list[Path] = []
-        if remove:
-            for task_id in task_ids:
-                with contextlib.suppress(AppError):
-                    real = (await self._task(task_id)).params.get("real_path", "")
-                    if real:
-                        paths.append(Path(real))
-        await self.api.delete_tasks(task_ids, delete_files=remove, space=self.api.device_space)
-        self._invalidate_summary()
-        return await asyncio.to_thread(remove_inside, paths, self.download_dirs)
+        return await self.tasks.action(task_ids, "delete", remove)

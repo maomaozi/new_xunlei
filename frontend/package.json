@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run --passWithNoTests",
+    "test:e2e:runner": "bun scripts/runner-e2e.mjs",
     "test:watch": "vitest",
     "preview": "vite preview"
   },
@@ -33,6 +34,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "jsdom": "^30.0.1",
     "oxlint": "^1.79.0",
+    "playwright-core": "1.58.2",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",

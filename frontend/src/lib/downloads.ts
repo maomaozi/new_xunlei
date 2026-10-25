@@ -1,4 +1,4 @@
-import type { DownloadList, DownloadStatus, DownloadTask, EngineState, LiveDownloads } from './api'
+import type { DownloadFilter, DownloadList, DownloadStatus, DownloadTask, EngineState, LiveDownloads } from './api'
 
 type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'muted'
 
@@ -76,7 +76,15 @@ export function linkName(url: string): string {
  * task is patched about once a minute, the live values every second.
  */
 export function mergeLive(list: DownloadList | undefined, live: LiveDownloads | undefined): DownloadList | undefined {
-  if (!list || !live?.tasks.length) return list
+  if (live?.downloads && (!list || live.epoch !== list.epoch || (live.version ?? 0) >= (list.version ?? 0))) {
+    const tasks = live.downloads
+    return { ...list, tasks, next_page_token: '', version: live.version, epoch: live.epoch, observed_at: live.observed_at,
+      stale: live.stale, source_errors: live.source_errors,
+      summary: { total: tasks.length, active: tasks.filter((t) => t.status === 'queued' || t.status === 'running').length,
+        paused: tasks.filter((t) => t.status === 'paused').length, complete: tasks.filter((t) => t.status === 'complete').length,
+        error: tasks.filter((t) => t.status === 'error').length, speed: live.speed } }
+  }
+  if (!list || !live?.tasks.length || (live.epoch === list.epoch && (live.version ?? 0) < (list.version ?? 0))) return list
   const byId = new Map(live.tasks.map((task) => [task.id, task]))
   const tasks = list.tasks.map((task) => {
     const current = byId.get(task.id)
@@ -102,4 +110,40 @@ export function liveSignature(live: LiveDownloads | undefined): string {
 
 export function formatProgress(value: number): string {
   return value >= 100 || value <= 0 ? `${Math.round(value)}%` : `${value.toFixed(1)}%`
+}
+
+/** Filters apply after observation, keeping counts and rows on the same version. */
+export function filterDownloads(list: DownloadList | undefined, filter: DownloadFilter): DownloadList | undefined {
+  if (!list || filter === 'all') return list
+  return { ...list, tasks: list.tasks.filter((task) => filter === 'active'
+    ? task.status === 'queued' || task.status === 'running' : task.status === filter) }
+}
+
+/** Action feedback is another observation of the same inventory, including partial results. */
+export function applyActionResults(list: DownloadList | undefined, response: import('./api').DownloadActionResponse): DownloadList | undefined {
+  if (!list || response.epoch !== list.epoch || response.version < (list.version ?? 0)) return list
+  const outcomes = new Map(response.results.map((result) => [result.task_id, result]))
+  const tasks = list.tasks.flatMap((task) => {
+    const result = outcomes.get(task.id)
+    if (!result) return [task]
+    if (result.action === 'delete' && result.status === 'confirmed') return []
+    return [{ ...(result.task ?? task), operation: result }]
+  })
+  return { ...list, tasks, version: response.version, summary: {
+    total: tasks.length, active: tasks.filter((t) => t.status === 'running' || t.status === 'queued').length,
+    paused: tasks.filter((t) => t.status === 'paused').length, complete: tasks.filter((t) => t.status === 'complete').length,
+    error: tasks.filter((t) => t.status === 'error').length, speed: tasks.reduce((total, task) => total + task.speed, 0),
+  } }
+}
+
+export function markActionsPending(list: DownloadList | undefined, ids: Set<string>, action: string): DownloadList | undefined {
+  return list && { ...list, tasks: list.tasks.map((task) => ids.has(task.id)
+    ? { ...task, operation: { action, status: 'pending', message: '' } } : task) }
+}
+
+/** A delayed response must not roll back an action that was already observed. */
+export function latestDownloadSnapshot(previous: unknown, value: unknown): DownloadList {
+  const incoming = value as DownloadList
+  const existing = previous as DownloadList | undefined
+  return existing && existing.epoch === incoming.epoch && (existing.version ?? 0) > (incoming.version ?? 0) ? existing : incoming
 }

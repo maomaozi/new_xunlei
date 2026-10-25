@@ -402,6 +402,9 @@ export interface EngineSettings {
   task_poll_seconds: number
   live_progress: boolean
   live_poll_ms: number
+  control_timeout_seconds: number
+  local_control_fallback: boolean
+  delete_cloud_sync: boolean
   delete_files_with_task: boolean
 }
 
@@ -474,6 +477,21 @@ export interface EngineFolder {
 export type DownloadStatus = 'queued' | 'running' | 'paused' | 'complete' | 'error'
 export type DownloadFilter = 'all' | 'active' | 'paused' | 'complete' | 'error'
 
+export interface DownloadOperation {
+  action: string
+  status: 'pending' | 'confirmed' | 'submitted' | 'not_found' | 'unsupported' | 'timeout' | 'failed' | 'partial'
+  message: string
+  cleanup_errors?: string[]
+  transport?: 'touch' | 'runner_proxy' | ''
+}
+
+export interface DownloadActionResponse {
+  ok: boolean
+  results: (DownloadOperation & { task_id: string; task?: DownloadTask })[]
+  version: number
+  epoch?: string
+}
+
 export interface DownloadTask {
   id: string
   name: string
@@ -498,6 +516,12 @@ export interface DownloadTask {
   created_at: string
   updated_at: string
   params: Record<string, string>
+  capabilities?: { pause: boolean; resume: boolean; retry: boolean; delete: boolean }
+  operation?: DownloadOperation | null
+  stale?: boolean
+  observed_at?: string
+  version?: number
+  paths?: string[]
 }
 
 export interface LiveTask {
@@ -518,6 +542,12 @@ export interface LiveDownloads {
   tasks: LiveTask[]
   running: number
   speed: number
+  version?: number
+  epoch?: string
+  observed_at?: string
+  stale?: boolean
+  source_errors?: Record<string, string>
+  downloads?: DownloadTask[]
 }
 
 export interface DownloadSummary {
@@ -533,6 +563,11 @@ export interface DownloadList {
   tasks: DownloadTask[]
   summary: DownloadSummary
   next_page_token: string
+  version?: number
+  epoch?: string
+  observed_at?: string
+  stale?: boolean
+  source_errors?: Record<string, string>
 }
 
 export interface DownloadCreateResult {

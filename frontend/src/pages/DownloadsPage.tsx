@@ -1,23 +1,23 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Checkbox, Input } from 'antd'
 import { ArrowDown, CheckCheck, CircleAlert, Download, Gauge, Info, Pause, Play, Plus, RefreshCw, RotateCw, Search, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import BottomSheet, { SheetAction, SheetGroup } from '../components/BottomSheet'
 import DownloadDetailModal from '../components/DownloadDetailModal'
 import DownloadRow from '../components/DownloadRow'
-import { primaryAction, taskIcon, type DownloadAction } from '../lib/downloadActions'
+import { actionFeedback, primaryAction, taskIcon, type DownloadAction } from '../lib/downloadActions'
 import EngineBanner from '../components/EngineBanner'
 import HeroStats from '../components/HeroStats'
 import LoginRequired from '../components/LoginRequired'
 import PageHeader from '../components/PageHeader'
 import { ActionBar, Badge, Card, Chips, EmptyState, IconButton, IconTile, ListSkeleton, PillButton, SelectionControls } from '../components/ui'
-import { useDownloads, useEngineStatus, useLiveDownloads } from '../hooks/useEngine'
+import { useDownloads, useEngineStatus } from '../hooks/useEngine'
 import { useIsMobile } from '../hooks/useMediaQuery'
 import { useSelection } from '../hooks/useSelection'
-import { downloadsApi, engineApi, errorMessage, isAuthError, type DownloadFilter, type DownloadTask } from '../lib/api'
+import { downloadsApi, engineApi, errorMessage, isAuthError, type DownloadFilter, type DownloadList, type DownloadTask } from '../lib/api'
 import { useCreate } from '../lib/createContext'
 import { cx } from '../lib/cx'
-import { DOWNLOAD_STATUS, liveSignature, mergeLive } from '../lib/downloads'
+import { applyActionResults, DOWNLOAD_STATUS, markActionsPending } from '../lib/downloads'
 import { formatBytes, formatDuration, formatSpeed } from '../lib/format'
 import { useAppSettings } from '../lib/settingsContext'
 
@@ -77,18 +77,21 @@ export default function DownloadsPage() {
   const [detail, setDetail] = useState<DownloadTask | null>(null)
   const [sheetTask, setSheetTask] = useState<DownloadTask | null>(null)
   const query = useDownloads(filter)
-  const live = useLiveDownloads(engine.data?.state === 'running')
-  const data = useMemo(() => mergeLive(query.data, live.data), [query.data, live.data])
+  const allDownloads = useDownloads('all', Boolean(detail || sheetTask))
+  const data = query.data
   const summary = data?.summary
-
-  // The cloud list lags the engine; refetch it when a task appears, finishes or changes state.
-  const signature = liveSignature(live.data)
-  const lastSignature = useRef(signature)
-  useEffect(() => {
-    if (signature === lastSignature.current) return
-    lastSignature.current = signature
-    void queryClient.invalidateQueries({ queryKey: ['downloads'] })
-  }, [signature, queryClient])
+  const degraded = data?.source_errors?.live ?? data?.source_errors?.database
+  const [pending, setPending] = useState<Set<string>>(new Set())
+  const markPending = (items: DownloadTask[], active: boolean) => setPending((previous) => {
+    const next = new Set(previous)
+    items.forEach((task) => active ? next.add(task.id) : next.delete(task.id))
+    return next
+  })
+  const notify = (result: Awaited<ReturnType<typeof downloadsApi.pause>>) => {
+    queryClient.setQueryData<DownloadList>(['downloads'], (previous) => applyActionResults(previous, result))
+    const feedback = actionFeedback(result)
+    message[feedback.kind](feedback.text)
+  }
 
   const tasks = useMemo(() => {
     const all = data?.tasks ?? []
@@ -123,12 +126,17 @@ export default function DownloadsPage() {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await downloadsApi.remove(items.map((t) => t.id), withFiles)
-          message.success('已删除')
+          markPending(items, true)
+          await queryClient.cancelQueries({ queryKey: ['downloads'] })
+          queryClient.setQueryData<DownloadList>(['downloads'], (previous) => markActionsPending(previous, new Set(items.map((task) => task.id)), 'delete'))
+          notify(await downloadsApi.remove(items.map((t) => t.id), withFiles))
           selection.clear()
           refresh()
         } catch (error) {
           message.error(errorMessage(error))
+        } finally {
+          markPending(items, false)
+          refresh()
         }
       },
     })
@@ -136,12 +144,17 @@ export default function DownloadsPage() {
 
   const run = async (items: DownloadTask[], action: DownloadAction) => {
     if (!items.length) return
+    if (action === 'detail') return setDetail(items[0])
+    if (action === 'delete') return confirmDelete(items)
+    items = items.filter((task) => !pending.has(task.id))
+    if (!items.length) return
     try {
       const ids = items.map((t) => t.id)
-      if (action === 'detail') return setDetail(items[0])
-      if (action === 'delete') return confirmDelete(items)
-      if (action === 'pause') await downloadsApi.pause(ids)
-      if (action === 'resume') await downloadsApi.resume(ids)
+      markPending(items, true)
+      await queryClient.cancelQueries({ queryKey: ['downloads'] })
+      queryClient.setQueryData<DownloadList>(['downloads'], (previous) => markActionsPending(previous, new Set(ids), action))
+      if (action === 'pause') notify(await downloadsApi.pause(ids))
+      if (action === 'resume') notify(await downloadsApi.resume(ids))
       if (action === 'retry') {
         const { results } = await downloadsApi.retry(ids)
         results.filter((r) => !r.ok).forEach((r) => message.error(r.error))
@@ -150,6 +163,9 @@ export default function DownloadsPage() {
       refresh()
     } catch (error) {
       message.error(errorMessage(error))
+    } finally {
+      markPending(items, false)
+      refresh()
     }
   }
 
@@ -169,7 +185,7 @@ export default function DownloadsPage() {
     error: summary?.error,
     all: summary?.total,
   }
-  const failedChosen = chosen.filter((t) => t.status === 'error')
+  const failedChosen = chosen.filter((t) => t.capabilities?.retry && !pending.has(t.id))
   const allSelected = chosen.length > 0 && chosen.length === tasks.length
   const touchSelecting = isMobile && selection.selecting
 
@@ -185,7 +201,11 @@ export default function DownloadsPage() {
     />
   )
 
-  const sheetPrimary = sheetTask ? primaryAction(sheetTask) : null
+  const currentSheetTask = allDownloads.data
+    ? allDownloads.data.tasks.find((task) => task.id === sheetTask?.id) ?? null : sheetTask
+  const currentDetailTask = allDownloads.data
+    ? allDownloads.data.tasks.find((task) => task.id === detail?.id) ?? null : detail
+  const sheetPrimary = currentSheetTask ? primaryAction(currentSheetTask) : null
 
   return (
     <div>
@@ -230,9 +250,10 @@ export default function DownloadsPage() {
           { label: '失败', value: summary?.error ?? 0, active: filter === 'error', onClick: () => changeFilter('error') },
         ]}
       />
-      {live.error && settings?.engine.live_progress && (
-        <div className="mb-4 text-[12px] text-ink-3">
-          <Badge tone="warning">实时进度不可用</Badge> {errorMessage(live.error)}，进度改为按云端记录显示（约每分钟更新）。
+      {degraded && (
+        <div role="status" className="mb-4 text-[12px] text-ink-3">
+          <Badge tone="warning">{degraded}</Badge>
+          {data?.stale && <span className="ml-2">显示上次记录</span>}
         </div>
       )}
       {engine.data?.state === 'running' && engine.data.logged_in && <TrialStrip active={summary?.active ?? 0} />}
@@ -251,16 +272,16 @@ export default function DownloadsPage() {
         <div className="glass-card sticky top-4 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-[22px] p-2 pl-4 text-[13px] text-ink-2">
           已选 <b className="text-accent">{chosen.length}</b> 项
           <div className="flex-1" />
-          <PillButton icon={Pause} onClick={() => run(chosen, 'pause')} className="!px-3 !py-2">
+          <PillButton icon={Pause} disabled={!chosen.some((t) => t.capabilities?.pause && !pending.has(t.id))} onClick={() => run(chosen.filter((t) => t.capabilities?.pause), 'pause')} className="!px-3 !py-2">
             暂停
           </PillButton>
-          <PillButton icon={Play} onClick={() => run(chosen, 'resume')} className="!px-3 !py-2">
+          <PillButton icon={Play} disabled={!chosen.some((t) => t.capabilities?.resume && !pending.has(t.id))} onClick={() => run(chosen.filter((t) => t.capabilities?.resume), 'resume')} className="!px-3 !py-2">
             继续
           </PillButton>
           <PillButton icon={RotateCw} disabled={!failedChosen.length} onClick={() => run(failedChosen, 'retry')} className="!px-3 !py-2">
             重试
           </PillButton>
-          <PillButton icon={Trash2} onClick={() => run(chosen, 'delete')} className="!px-3 !py-2 !text-danger">
+          <PillButton icon={Trash2} disabled={!chosen.some((t) => t.capabilities?.delete && !pending.has(t.id))} onClick={() => run(chosen.filter((t) => t.capabilities?.delete), 'delete')} className="!px-3 !py-2 !text-danger">
             删除
           </PillButton>
           <PillButton onClick={selection.clear} className="!px-3 !py-2">
@@ -299,7 +320,7 @@ export default function DownloadsPage() {
             {tasks.map((task) => (
               <DownloadRow
                 key={task.id}
-                task={task}
+                task={pending.has(task.id) ? { ...task, operation: { action: '', status: 'pending', message: '' } } : task}
                 touch={isMobile}
                 selected={selection.has(task.id)}
                 selecting={selection.selecting}
@@ -316,33 +337,33 @@ export default function DownloadsPage() {
       {touchSelecting && (
         <ActionBar
           actions={[
-            { key: 'pause', icon: Pause, label: '暂停', onClick: () => run(chosen, 'pause') },
-            { key: 'resume', icon: Play, label: '继续', onClick: () => run(chosen, 'resume') },
+            { key: 'pause', icon: Pause, label: '暂停', disabled: !chosen.some((t) => t.capabilities?.pause && !pending.has(t.id)), onClick: () => run(chosen.filter((t) => t.capabilities?.pause), 'pause') },
+            { key: 'resume', icon: Play, label: '继续', disabled: !chosen.some((t) => t.capabilities?.resume && !pending.has(t.id)), onClick: () => run(chosen.filter((t) => t.capabilities?.resume), 'resume') },
             { key: 'retry', icon: RotateCw, label: '重试', disabled: !failedChosen.length, onClick: () => run(failedChosen, 'retry') },
-            { key: 'delete', icon: Trash2, label: '删除', danger: true, onClick: () => run(chosen, 'delete') },
+            { key: 'delete', icon: Trash2, label: '删除', danger: true, disabled: !chosen.some((t) => t.capabilities?.delete && !pending.has(t.id)), onClick: () => run(chosen.filter((t) => t.capabilities?.delete), 'delete') },
           ]}
         />
       )}
 
       <BottomSheet
-        open={Boolean(sheetTask)}
+        open={Boolean(currentSheetTask)}
         onClose={() => setSheetTask(null)}
         header={
-          sheetTask && (
+          currentSheetTask && (
             <div className="mb-4 flex items-center gap-3 px-1">
-              <IconTile icon={taskIcon(sheetTask)} tone={DOWNLOAD_STATUS[sheetTask.status].tone} size={46} />
+              <IconTile icon={taskIcon(currentSheetTask)} tone={DOWNLOAD_STATUS[currentSheetTask.status].tone} size={46} />
               <div className="min-w-0 flex-1">
-                <div className="line-clamp-2 text-[15px] font-semibold break-all text-ink">{sheetTask.name}</div>
+                <div className="line-clamp-2 text-[15px] font-semibold break-all text-ink">{currentSheetTask.name}</div>
                 <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
-                  <Badge tone={DOWNLOAD_STATUS[sheetTask.status].tone}>{DOWNLOAD_STATUS[sheetTask.status].label}</Badge>
-                  {sheetTask.size > 0 && formatBytes(sheetTask.size)}
+                  <Badge tone={DOWNLOAD_STATUS[currentSheetTask.status].tone}>{DOWNLOAD_STATUS[currentSheetTask.status].label}</Badge>
+                  {currentSheetTask.size > 0 && formatBytes(currentSheetTask.size)}
                 </div>
               </div>
             </div>
           )
         }
       >
-        {sheetTask && (
+        {currentSheetTask && (
           <>
             <SheetGroup>
               {sheetPrimary && (
@@ -351,7 +372,7 @@ export default function DownloadsPage() {
                   label={sheetPrimary.label}
                   onClick={() => {
                     setSheetTask(null)
-                    void run([sheetTask], sheetPrimary.action)
+                    void run([currentSheetTask], sheetPrimary.action)
                   }}
                 />
               )}
@@ -360,7 +381,7 @@ export default function DownloadsPage() {
                 label="任务详情"
                 onClick={() => {
                   setSheetTask(null)
-                  setDetail(sheetTask)
+                  setDetail(currentSheetTask)
                 }}
               />
               <SheetAction
@@ -368,7 +389,7 @@ export default function DownloadsPage() {
                 label="多选"
                 onClick={() => {
                   setSheetTask(null)
-                  selection.toggle(sheetTask.id)
+                  selection.toggle(currentSheetTask.id)
                 }}
               />
             </SheetGroup>
@@ -376,17 +397,18 @@ export default function DownloadsPage() {
               <SheetAction
                 icon={<Trash2 size={18} />}
                 label="删除任务"
+                disabled={currentSheetTask.capabilities?.delete === false || pending.has(currentSheetTask.id)}
                 danger
                 onClick={() => {
                   setSheetTask(null)
-                  confirmDelete([sheetTask])
+                  confirmDelete([currentSheetTask])
                 }}
               />
             </SheetGroup>
           </>
         )}
       </BottomSheet>
-      <DownloadDetailModal task={detail} onClose={() => setDetail(null)} />
+      <DownloadDetailModal task={currentDetailTask} onClose={() => setDetail(null)} />
     </div>
   )
 }

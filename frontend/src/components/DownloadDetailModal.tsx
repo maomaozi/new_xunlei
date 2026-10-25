@@ -23,7 +23,8 @@ export default function DownloadDetailModal({ task, onClose }: { task: DownloadT
             layout={isMobile ? 'vertical' : 'horizontal'}
             items={[
               { key: 'name', label: '名称', children: task.name },
-              { key: 'status', label: '状态', children: `${DOWNLOAD_STATUS[task.status].label}（${task.phase}）${task.message ? ` · ${task.message}` : ''}` },
+              { key: 'status', label: '状态', children: `${DOWNLOAD_STATUS[task.status].label}${task.stale ? ' · 状态待更新' : ''}${task.operation?.status === 'pending' ? ' · 正在处理…' : ''}` },
+              ...(task.operation?.message ? [{ key: 'operation', label: '操作结果', children: task.operation.message }] : []),
               { key: 'size', label: '大小', children: task.size ? `${formatBytes(task.size)}（${task.size.toLocaleString()} 字节）` : '--' },
               { key: 'progress', label: '进度', children: `${task.progress}%` },
               { key: 'speed', label: '速度', children: `${formatSpeed(task.speed)}（加速 ${formatSpeed(task.speedup_speed)}）` },

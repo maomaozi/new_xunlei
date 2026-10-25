@@ -1,44 +1,43 @@
 import { useQuery } from '@tanstack/react-query'
-import { downloadsApi, engineApi, type DownloadFilter } from '../lib/api'
+import { downloadsApi, engineApi, type DownloadFilter, type LiveDownloads } from '../lib/api'
+import { filterDownloads, latestDownloadSnapshot } from '../lib/downloads'
 import { useAppSettings } from '../lib/settingsContext'
 
-/** Engine process/login state; polls faster while the engine is starting or `live` is set. */
 export function useEngineStatus(live = false) {
   return useQuery({
-    queryKey: ['engine'],
-    queryFn: engineApi.status,
+    queryKey: ['engine'], queryFn: engineApi.status,
     refetchInterval: (query) => (query.state.data?.state === 'starting' ? 1500 : live ? 3000 : 10000),
   })
 }
 
-/**
- * Cloud task list of one filter. Live progress comes from `useLiveDownloads`, so this only
- * needs to catch state changes and runs at the slower cloud interval.
- */
-export function useDownloads(filter: DownloadFilter, enabled = true) {
+/** Every screen observes one snapshot; filtering never starts another cloud poll. */
+function useDownloadSnapshot(enabled: boolean) {
   const { settings } = useAppSettings()
-  const active = (settings?.engine.task_poll_seconds ?? 10) * 1000
+  const fast = settings?.engine.live_progress === false
+    ? (settings.engine.task_poll_seconds ?? 10) * 1000 : (settings?.engine.live_poll_ms ?? 1000)
   return useQuery({
-    queryKey: ['downloads', filter],
-    queryFn: () => downloadsApi.list(filter),
-    enabled,
-    refetchInterval: (query) => (query.state.data?.summary.active ? active : Math.max(active, 30000)),
-    staleTime: 0,
+    queryKey: ['downloads'], queryFn: () => downloadsApi.list('all'), enabled,
+    retry: false, structuralSharing: latestDownloadSnapshot,
+    refetchInterval: (query) => query.state.error ? Math.max(fast, 10000) : fast,
+    staleTime: 300,
   })
 }
 
-/** Per-second progress/speed straight from the engine's memory (local, no cloud round-trip). */
+export function useDownloads(filter: DownloadFilter, enabled = true) {
+  const query = useDownloadSnapshot(enabled)
+  return { ...query, data: filterDownloads(query.data, filter) }
+}
+
+/** Compatibility shape for navigation and overview; shares the same query and version. */
 export function useLiveDownloads(enabled = true) {
-  const { settings } = useAppSettings()
-  const on = enabled && (settings?.engine.live_progress ?? true)
-  const fast = settings?.engine.live_poll_ms ?? 1000
-  return useQuery({
-    queryKey: ['downloads-live'],
-    queryFn: downloadsApi.live,
-    enabled: on,
-    retry: false,
-    // Keep polling while idle (cheap and local) so new tasks show up quickly.
-    refetchInterval: (query) => (query.state.error ? 10000 : query.state.data?.tasks.length ? fast : Math.max(fast, 3000)),
-    staleTime: 0,
-  })
+  const query = useDownloadSnapshot(enabled)
+  const snapshot = query.data
+  const data: LiveDownloads | undefined = snapshot && {
+    tasks: snapshot.tasks.map((task) => ({ ...task, running: task.status === 'running' })),
+    running: snapshot.tasks.filter((task) => task.status === 'running').length,
+    speed: snapshot.summary.speed, version: snapshot.version, epoch: snapshot.epoch,
+    observed_at: snapshot.observed_at, stale: snapshot.stale,
+    downloads: snapshot.tasks, source_errors: snapshot.source_errors,
+  }
+  return { ...query, data }
 }

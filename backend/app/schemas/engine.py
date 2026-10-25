@@ -101,6 +101,46 @@ class SpeedupState(BaseModel):
     super: str = ""
 
 
+class TaskCapabilities(BaseModel):
+    pause: bool = False
+    resume: bool = False
+    retry: bool = False
+    delete: bool = False
+
+
+class DownloadOperation(BaseModel):
+    action: str
+    status: Literal[
+        "pending",
+        "confirmed",
+        "submitted",
+        "not_found",
+        "unsupported",
+        "timeout",
+        "failed",
+        "partial",
+    ]
+    message: str = ""
+    cleanup_errors: list[str] = Field(default_factory=list)
+    transport: Literal["touch", "runner_proxy", ""] = ""
+    observed_status: str = ""
+    database_phase: str = ""
+    locally_removed: bool = False
+    cloud_synced: bool = False
+
+
+class DownloadActionResult(DownloadOperation):
+    task_id: str
+    task: "DownloadTask | None" = None
+
+
+class DownloadActionResponse(BaseModel):
+    ok: bool
+    results: list[DownloadActionResult]
+    version: int
+    epoch: str = ""
+
+
 class DownloadTask(BaseModel):
     id: str
     name: str
@@ -125,6 +165,12 @@ class DownloadTask(BaseModel):
     created_at: str
     updated_at: str
     params: dict[str, str]
+    capabilities: TaskCapabilities = Field(default_factory=TaskCapabilities)
+    operation: DownloadOperation | None = None
+    stale: bool = False
+    observed_at: str = ""
+    version: int = 0
+    paths: list[str] = Field(default_factory=list)
 
 
 class LiveTask(BaseModel):
@@ -144,8 +190,14 @@ class LiveDownloads(BaseModel):
     """In-memory engine state (`/device/debug`): only tasks the engine is processing."""
 
     tasks: list[LiveTask]
+    epoch: str = ""
     running: int
     speed: int
+    version: int = 0
+    observed_at: str = ""
+    stale: bool = False
+    source_errors: dict[str, str] = Field(default_factory=dict)
+    downloads: list[DownloadTask] = Field(default_factory=list)
 
 
 class DownloadSummary(BaseModel):
@@ -159,8 +211,13 @@ class DownloadSummary(BaseModel):
 
 class DownloadList(BaseModel):
     tasks: list[DownloadTask]
+    epoch: str = ""
     summary: DownloadSummary
     next_page_token: str
+    version: int = 0
+    observed_at: str = ""
+    stale: bool = False
+    source_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class DownloadCreateRequest(BaseModel):
@@ -190,6 +247,7 @@ class DownloadCreateResult(BaseModel):
     ok: bool
     task_id: str = ""
     error: str = ""
+    status: Literal["confirmed", "ambiguous", "failed"] = "confirmed"
 
 
 class DownloadCreateResponse(BaseModel):

@@ -13,3 +13,22 @@ describe('primaryAction', () => {
     expect(primaryAction(task('complete'))).toBeNull()
   })
 })
+
+describe('confirmed and refused operation feedback', () => {
+  it('disables a primary action while pending or explicitly unavailable', () => {
+    expect(primaryAction({ ...task('running'), capabilities: { pause: false, resume: false, retry: false, delete: false } })).toBeNull()
+    expect(primaryAction({ ...task('paused'), operation: { action: 'resume', status: 'pending', message: '' } })).toBeNull()
+  })
+
+  it('shows partial batch completion and preserves the useful refusal message', async () => {
+    const { actionFeedback } = await import('./downloadActions')
+    const feedback = actionFeedback({ ok: false, version: 5, results: [
+      { task_id: 'ok', action: 'pause', status: 'confirmed', message: '' },
+      { task_id: 'unavailable', action: 'pause', status: 'unsupported', message: '本地任务记录不可用' },
+    ] })
+    expect(feedback).toEqual({ kind: 'warning', text: '1 项已完成，本地任务记录不可用' })
+    expect(actionFeedback({ ok: false, version: 6, results: [
+      { task_id: 'late', action: 'delete', status: 'timeout', message: '本地移除尚未确认，文件已保留。' },
+    ] })).toEqual({ kind: 'error', text: '本地移除尚未确认，文件已保留。' })
+  })
+})

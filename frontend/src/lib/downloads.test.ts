@@ -70,3 +70,65 @@ describe('mergeLive', () => {
     expect(formatProgress(100)).toBe('100%')
   })
 })
+
+describe('shared observations and action results', () => {
+  const snapshot = {
+    version: 12,
+    tasks: [
+      { id: 'a', status: 'running', speed: 30 },
+      { id: 'b', status: 'complete', speed: 0 },
+    ],
+    summary: { total: 2, active: 1, paused: 0, complete: 1, error: 0, speed: 30 },
+    next_page_token: '',
+  } as DownloadList
+
+  it('immediately moves a confirmed paused task out of active and updates every count', async () => {
+    const { applyActionResults, filterDownloads } = await import('./downloads')
+    const result = applyActionResults(snapshot, { ok: true, version: 13, results: [
+      { task_id: 'a', action: 'pause', status: 'confirmed', message: '', task: { ...snapshot.tasks[0], status: 'paused', speed: 0 } },
+    ] })!
+    expect(filterDownloads(result, 'active')?.tasks).toHaveLength(0)
+    expect(filterDownloads(result, 'paused')?.tasks.map((task) => task.id)).toEqual(['a'])
+    expect(result.summary).toEqual({ total: 2, active: 0, paused: 1, complete: 1, error: 0, speed: 0 })
+    expect(snapshot.tasks[0].status).toBe('running')
+  })
+
+  it('retains partially deleted tasks and suppresses older action and query responses', async () => {
+    const { applyActionResults, latestDownloadSnapshot } = await import('./downloads')
+    const result = applyActionResults(snapshot, { ok: false, version: 13, results: [
+      { task_id: 'a', action: 'delete', status: 'partial', message: '文件清理失败' },
+      { task_id: 'b', action: 'delete', status: 'confirmed', message: '' },
+    ] })!
+    expect(result.tasks.map((task) => task.id)).toEqual(['a'])
+    expect(result.tasks[0].operation?.message).toBe('文件清理失败')
+    expect(latestDownloadSnapshot(result, snapshot)).toBe(result)
+    expect(applyActionResults(result, { ok: true, version: 11, results: [] })).toBe(result)
+  })
+
+  it('uses the complete shared live inventory so local-only tasks and removals are visible', () => {
+    const live = { version: 13, tasks: [], running: 0, speed: 0, downloads: [{ id: 'new', status: 'queued', speed: 0 }] } as unknown as LiveDownloads
+    const merged = mergeLive(snapshot, live)!
+    expect(merged.tasks.map((task) => task.id)).toEqual(['new'])
+    expect(merged.summary.total).toBe(1)
+    expect(merged.summary.active).toBe(1)
+    expect(mergeLive(merged, { ...live, version: 12, downloads: [] })).toBe(merged)
+  })
+})
+
+describe('server lifetime and instance changes', () => {
+  const old = { epoch: 'previous-service', version: 1000, tasks: [], summary: { total: 0, active: 0, paused: 0, complete: 0, error: 0, speed: 0 }, next_page_token: '' } as DownloadList
+
+  it('accepts a lower version from a new epoch after a backend restart or instance switch', async () => {
+    const { latestDownloadSnapshot } = await import('./downloads')
+    const restarted = { ...old, epoch: 'new-service', version: 1 }
+    expect(latestDownloadSnapshot(old, restarted)).toBe(restarted)
+    expect(latestDownloadSnapshot(restarted, { ...restarted, version: 0 })).toBe(restarted)
+  })
+
+  it('rejects a delayed action from another instance even if its version is larger', async () => {
+    const { applyActionResults } = await import('./downloads')
+    const current = { ...old, epoch: 'new-instance', version: 1 }
+    expect(applyActionResults(current, { ok: true, epoch: 'previous-service', version: 1001, results: [] })).toBe(current)
+    expect(mergeLive(old, { epoch: 'new-service', version: 1, downloads: [], tasks: [], running: 0, speed: 0 })?.epoch).toBe('new-service')
+  })
+})

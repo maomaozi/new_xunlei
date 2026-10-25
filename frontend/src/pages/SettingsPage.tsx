@@ -474,7 +474,7 @@ function EnginePanel() {
       >
         {(form) => (
           <>
-            <SwitchField name="enabled" label="启用下载引擎" desc="关闭后停止引擎，「下载」页不可用" />
+            <SwitchField name="enabled" label="启用下载引擎" desc="关闭后停止引擎，仍可查看已有任务" />
             <DirField name="download_dir" label="默认下载目录" desc="链接、种子与云盘取回的默认保存位置" form={form} />
             <ExtraDirsField form={form} />
             <Field name="speed_limit_kbps" label="下载限速" desc="引擎全部任务共享，0 表示不限速">
@@ -487,11 +487,16 @@ function EnginePanel() {
               <Input placeholder="默认" maxLength={60} />
             </Field>
             <SwitchField name="delete_files_with_task" label="删除任务时默认同时删除文件" />
+            <SwitchField name="local_control_fallback" label="兼容任务控制" desc="本地控制不可用时由引擎同步暂停、继续和删除操作，需要网络连接" />
+            <SwitchField name="delete_cloud_sync" label="删除时同步移除云端任务记录" desc="关闭后保留云端任务，下载任务可能再次出现" />
+            <Field name="control_timeout_seconds" label="操作确认等待时间">
+              <NumberInput min={1} max={30} suffix="秒" />
+            </Field>
             <SwitchField name="live_progress" label="实时进度" desc="直接从本机引擎内存读取进度与速度（约 10ms，不经迅雷云端；云端记录约每分钟才更新一次）" />
             <Field name="live_poll_ms" label="实时进度刷新间隔">
               <NumberInput min={500} max={10000} step={500} suffix="毫秒" />
             </Field>
-            <Field name="task_poll_seconds" label="云端任务列表刷新间隔" desc="有进行中任务时同步任务列表与状态的频率；任务开始、完成或状态变化时会立即刷新">
+            <Field name="task_poll_seconds" label="云端信息同步间隔" desc="补充任务名称、来源与加速信息">
               <NumberInput min={2} max={120} suffix="秒" />
             </Field>
           </>

@@ -1,5 +1,6 @@
 """HTTP client for the engine's loopback API (`DriveListen`)."""
 
+import asyncio
 import datetime
 import json
 import logging
@@ -57,7 +58,7 @@ class EngineClient:
         json_body: object | None = None,
         limit: float | None = None,
     ) -> httpx.Response:
-        token = self._token(scope)
+        token = await asyncio.to_thread(self._token, scope)
         headers = (
             {"LocalToken": f"LocalToken {token}"} if scope == LOCAL_SCOPE else {"pan-auth": token}
         )
@@ -95,7 +96,11 @@ class EngineClient:
             data = response.json() if response.content else {}
         except json.JSONDecodeError:
             data = {}
-        if response.status_code >= 400:
+        business_error = isinstance(data, dict) and (
+            bool(data.get("error"))
+            or (isinstance(data.get("HttpStatus"), int) and data["HttpStatus"] >= 400)
+        )
+        if response.status_code >= 400 or business_error:
             message = ""
             if isinstance(data, dict):
                 message = str(data.get("error_description") or data.get("error") or "")
@@ -204,3 +209,35 @@ class EngineClient:
         params: dict[str, str | int] = {"space": space, "parent_id": parent_id, "limit": 500}
         data = await self.call("GET", "/drive/v1/files", params=params, limit=20)
         return data if isinstance(data, dict) else {}
+
+    async def touch_task(self, dl_task_id: str, event: str) -> JsonObject:
+        data = await self.call(
+            "GET",
+            "/device/v1/touch_dltask",
+            scope=LOCAL_SCOPE,
+            params={"dltask_id": dl_task_id, "event": event},
+        )
+        return data if isinstance(data, dict) else {}
+
+    async def create_task(self, payload: JsonObject) -> JsonObject:
+        # Never retry POST: a lost response can still mean the task was created.
+        data = await self.call("POST", "/drive/v1/task", json_body=payload)
+        return data if isinstance(data, dict) else {}
+
+    async def patch_task(self, task_id: str, task_type: str, space: str, paused: bool) -> None:
+        await self.call(
+            "PATCH",
+            "/drive/v1/task",
+            json_body={
+                "kind": "drive#task",
+                "id": task_id,
+                "type": task_type,
+                "space": space,
+                "set_params": {"spec": json.dumps({"phase": "pause" if paused else "running"})},
+            },
+        )
+
+    async def delete_tasks(self, ids: list[str], space: str) -> None:
+        await self.call(
+            "DELETE", "/drive/v1/tasks", params={"task_ids": ",".join(ids), "space": space}
+        )

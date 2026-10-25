@@ -3,9 +3,9 @@ from fastapi import APIRouter, Form, UploadFile
 from app.api.deps import EngineDep
 from app.api.responses import ENGINE_ERRORS, XUNLEI_ERRORS, errors
 from app.api.v1.offline import parse_indexes, read_torrent
-from app.schemas.common import OkResponse
 from app.schemas.engine import (
     CloudDownloadRequest,
+    DownloadActionResponse,
     DownloadCreateRequest,
     DownloadCreateResponse,
     DownloadDeleteRequest,
@@ -25,9 +25,9 @@ router = APIRouter(prefix="/downloads", tags=["downloads"])
     response_model=DownloadList,
     summary="List engine downloads",
     description=(
-        "`user#download-url` / `user#download` tasks of the engine's space with live speed, "
-        "local path and acceleration state reported by the engine. `summary` always covers "
-        "every task. Access: Public."
+        "One versioned Runner snapshot: local database, memory and persisted history, with "
+        "optional background cloud enrichment. Filtering happens after merging; summary "
+        "covers all tasks. Source failures and stale observations are explicit. Access: Public."
     ),
     responses=XUNLEI_ERRORS,
 )
@@ -40,7 +40,8 @@ async def list_downloads(engine: EngineDep, status: DownloadFilter = "all") -> D
     response_model=DownloadCreateResponse,
     summary="Download links on this host",
     description=(
-        "Creates one engine task per magnet/HTTP(S)/FTP/ed2k link (`POST /drive/v1/task`, "
+        "Creates one engine task per magnet/HTTP(S)/FTP/ed2k link via the Runner loopback "
+        "proxy (`POST /drive/v1/task`, still dependent on the cloud, "
         "type `user#download-url`). `files` selects BT sub-files (`sub_file_index`), "
         "`folder_id` an engine folder from `GET /engine/folders`. Access: Public."
     ),
@@ -98,9 +99,9 @@ async def create_cloud(body: CloudDownloadRequest, engine: EngineDep) -> Downloa
     response_model=LiveDownloads,
     summary="Live engine progress",
     description=(
-        "Progress and speed of the tasks the engine is processing, read from its memory "
-        "(`/device/debug`, ~10 ms, no cloud round-trip). The cloud copy of a task is only "
-        "patched about once a minute; poll this for live progress. Access: Public."
+        "Compatibility live response from the same snapshot as list/detail. Contains memory "
+        "telemetry and the complete merged downloads collection, version, observation time "
+        "and source errors. Cloud enrichment never blocks the local read. Access: Public."
     ),
     responses=ENGINE_ERRORS,
 )
@@ -112,7 +113,7 @@ async def live(engine: EngineDep) -> LiveDownloads:
     "/{task_id}",
     response_model=DownloadTask,
     summary="Get engine download",
-    description="`GET /drive/v1/tasks/{id}` in the engine space. Access: Public.",
+    description="Read a task from the shared snapshot, including local history. Access: Public.",
     responses=XUNLEI_ERRORS,
 )
 async def get_download(task_id: str, engine: EngineDep) -> DownloadTask:
@@ -121,29 +122,31 @@ async def get_download(task_id: str, engine: EngineDep) -> DownloadTask:
 
 @router.post(
     "/pause",
-    response_model=OkResponse,
+    response_model=DownloadActionResponse,
     summary="Pause engine downloads",
     description=(
-        '`PATCH /drive/v1/task` with `set_params.spec = {"phase": "pause"}`; tasks that are '
-        "not queued or running are skipped. Access: Public."
+        "Pause through mapped local touch, with configured Runner proxy fallback. Returns "
+        "per-task confirmation, timeout, unsupported or failure results; HTTP success alone "
+        "does not confirm a state transition. Access: Public."
     ),
     responses=XUNLEI_ERRORS,
 )
-async def pause(body: DownloadIdsRequest, engine: EngineDep) -> OkResponse:
-    await engine.set_paused(body.ids, paused=True)
-    return OkResponse()
+async def pause(body: DownloadIdsRequest, engine: EngineDep) -> DownloadActionResponse:
+    return await engine.set_paused(body.ids, paused=True)
 
 
 @router.post(
     "/resume",
-    response_model=OkResponse,
+    response_model=DownloadActionResponse,
     summary="Resume engine downloads",
-    description="`spec` phase `running` for paused tasks. Access: Public.",
+    description=(
+        "Resume using local touch or the configured Runner proxy fallback. A confirmed queued "
+        "result means scheduling resumed, not that bytes are transferring. Access: Public."
+    ),
     responses=XUNLEI_ERRORS,
 )
-async def resume(body: DownloadIdsRequest, engine: EngineDep) -> OkResponse:
-    await engine.set_paused(body.ids, paused=False)
-    return OkResponse()
+async def resume(body: DownloadIdsRequest, engine: EngineDep) -> DownloadActionResponse:
+    return await engine.set_paused(body.ids, paused=False)
 
 
 @router.post(
@@ -162,14 +165,15 @@ async def retry(body: DownloadIdsRequest, engine: EngineDep) -> DownloadCreateRe
 
 @router.post(
     "/delete",
-    response_model=OkResponse,
+    response_model=DownloadActionResponse,
     summary="Delete engine downloads",
     description=(
-        "`DELETE /drive/v1/tasks?space=…`; `delete_files` (default from settings) also "
-        "removes the downloaded data. Access: Public."
+        "Remove the native task and optionally reconcile cloud persistence. `delete_files` "
+        "cleans associated paths inside configured download roots only after local removal "
+        "is observed. Per-task results distinguish local removal, cloud sync, timeout and "
+        "partial file cleanup. Access: Public."
     ),
     responses=XUNLEI_ERRORS,
 )
-async def delete(body: DownloadDeleteRequest, engine: EngineDep) -> OkResponse:
-    await engine.delete(body.ids, body.delete_files)
-    return OkResponse()
+async def delete(body: DownloadDeleteRequest, engine: EngineDep) -> DownloadActionResponse:
+    return await engine.delete(body.ids, body.delete_files)

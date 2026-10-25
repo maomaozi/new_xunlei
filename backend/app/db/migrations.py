@@ -48,6 +48,18 @@ MIGRATIONS: list[str] = [
     """
     DELETE FROM transfers WHERE kind = 'fetch';
     """,
+    """
+    CREATE TABLE runner_tasks (
+        instance TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        dl_task_id TEXT NOT NULL DEFAULT '',
+        paths TEXT NOT NULL DEFAULT '[]',
+        deleted INTEGER NOT NULL DEFAULT 0,
+        operation TEXT NOT NULL DEFAULT '{}',
+        PRIMARY KEY (instance, task_id)
+    );
+    """,
 ]
 
 

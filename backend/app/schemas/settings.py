@@ -137,6 +137,15 @@ class EngineSettings(SettingsSection):
         default=True, description="Read progress/speed from the engine's memory every interval"
     )
     live_poll_ms: int = Field(default=1000, ge=500, le=10000)
+    control_timeout_seconds: float = Field(
+        default=5, ge=1, le=30, description="Overall local control and observation deadline"
+    )
+    local_control_fallback: bool = Field(
+        default=True, description="Use Runner proxy when local touch cannot control a task"
+    )
+    delete_cloud_sync: bool = Field(
+        default=True, description="Remove cloud persistence after confirmed local deletion"
+    )
     delete_files_with_task: bool = False
 
     @model_validator(mode="after")

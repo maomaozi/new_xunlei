@@ -19,6 +19,8 @@ ErrorCode = Literal[
     "engine_error",
     "engine_binary_missing",
     "engine_busy",
+    "engine_creation_ambiguous",
+    "engine_instance_changed",
 ]
 
 ERROR_MESSAGES: dict[ErrorCode, str] = {
@@ -39,6 +41,8 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     "engine_unavailable": "下载引擎未运行，请在「下载引擎」页面启动后重试。",
     "engine_error": "下载引擎返回错误。",
     "engine_binary_missing": "未找到迅雷下载引擎程序（xunlei-pan-cli），请在设置中指定路径。",
+    "engine_creation_ambiguous": "提交结果尚未确认，请先检查任务列表。",
+    "engine_instance_changed": "下载引擎实例已更改，请刷新后重试。",
     "engine_busy": "下载引擎正在运行，请先停止后再执行该操作。",
 }
 

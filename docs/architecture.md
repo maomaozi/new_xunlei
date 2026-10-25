@@ -81,19 +81,44 @@ cloud task (POST /drive/v1/task, target device_id#<id>) ──MQTT──▶ engi
   keeps its own chain via its QR login (`/auth/qrlogin`, `/auth/qrlogin/status`); it refreshes
   when less than 10% of `expires_in` is left. `/auth/credential` only exists on platforms
   labelled `withSetCredential`, which use other client ids.
-- Live progress: the engine patches a running task's cloud copy at most every 60 s
-  (`lastPatchTime more than 60s`), while its kernel loop refreshes progress/speed every second.
-  `GET /device/debug?passwd=md5("asdfhjjkeunzmxll"+YYYYMMDD)` (LocalToken, loopback only,
-  `utils.CheckDebugPasswd`) returns that in-memory state (`Process`, `Running`) in ~10 ms.
-  The route answers 403 unless the engine logs at debug level (it starts at info), so the
-  client calls `/device/debug/loglevel/debug?passwd=…` once and retries; debug level also
-  starts Go pprof on control port + 2, and the watchdog copy-truncates the faster growing
-  log. `GET /api/v1/downloads/live` serves it and the task list overlays it; the UI polls it every
-  second and refetches the cloud list only when the set or status of live tasks changes.
-- Tasks: progress, `speed`, `real_path`, `hash`, `error` and `speedup` (`p2p`/`vip`/`super`) are
-  reported in the task params. Finished tasks keep their data on `delete_files=true`, so the
-  backend removes `real_path` itself (only inside the engine download folders). A lost
-  `POST /drive/v1/task` response is recovered by matching name + source within 5 minutes.
+- Task observations: `RunnerTasks` merges the account-scoped local Bolt/Gob database,
+  `/device/debug` memory snapshot, application-owned SQLite history and optional background
+  cloud enrichment. List, detail, summary and compatibility live responses use one version.
+  Filtering happens after merge; missing memory entries do not imply completion or deletion.
+  The frontend shares one TanStack Query snapshot and polls at the configured live interval.
+  Native progress/speed still comes from debug memory (approximately one-second sampling).
+  Local queries do not wait for cloud enrichment; failed sources and stale history remain
+  explicit. Account/home changes invalidate mappings, observations and operation state.
+- 403 root cause & auto-unlock: `registerDebugApis.func7` checks `ClientIP == 127.0.0.1`,
+  `utils.CheckDebugPasswd`, and `*(logger.Level) == 5 (DebugLevel)`. On restart, the engine resets
+  level to 4 (info) because loglevel is not persisted. The supervisor injects `DriveLogLevel=debug`
+  into the engine environment on launch, and the client auto-calls `/device/debug/loglevel/debug`
+  on 403 to guarantee recovery.
+- Task creation: the backend sends `POST /drive/v1/task` to the loopback Runner proxy,
+  retaining link/cloud-file type, target, engine folder ID and BT file selection. The proxy
+  still depends on the cloud. A lost response triggers observation/reconciliation rather
+  than another POST; ambiguous outcomes are surfaced to the caller.
+- Task controls: mapped `touch_dltask` sends local stop/start/delete events. Some platforms
+  (including the observed Synology instance) omit that route, and queued/synced tasks may
+  lack a DLTaskId. `local_control_fallback` therefore enables Runner proxy PATCH/DELETE by
+  default. Responses report per-task transport and confirmation; `{}` is never proof of a
+  transition. Resume to queued is a valid scheduling outcome. Timeouts include HTTP time.
+- Deletion: preserve associated file paths before mutation, observe local removal, then
+  reconcile cloud persistence and optionally unlink only associated files under configured
+  roots. Directories are removed only when empty. Partial cleanup remains retryable.
+  Real protocol probes found cloud DELETE 200/GET404 can coexist with a retained queued
+  `Process` entry; this is reported as unconfirmed and disk contents are retained.
+- The database adapter validates Bolt metadata checksums/transaction IDs and decodes Gob
+  wire descriptors. It uses exact `<user>.taskinfo.db/LocalTaskInfo` and
+  `<user>.files/files/LocalFile` buckets, explicit device/client identity, worker-thread reads
+  and bounded capture retries. It never writes engine databases. App history uses an
+  append-only SQLite migration and includes operation state, mappings and file paths.
+- Known protocol capabilities such as streaming Wget, pprof and trial controls remain
+  distinct from the task integration. InnerWeb is not integrated.
+
+Reproducible test commands and evidence are in [runner-integration.md](runner-integration.md);
+independent review findings and native-engine limitations are in
+[runner-acceptance.md](runner-acceptance.md).
 
 ## Frontend
 

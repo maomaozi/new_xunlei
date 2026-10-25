@@ -39,6 +39,7 @@ export default function DownloadRow({
   return (
     <div
       role="button"
+      aria-label={`下载任务：${task.name}`}
       tabIndex={0}
       {...(touch ? press.handlers : {})}
       onClick={() => {
@@ -65,6 +66,8 @@ export default function DownloadRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           <Badge tone={status.tone}>{status.label}</Badge>
+          {task.operation?.status === 'pending' && <span role="status">正在处理…</span>}
+          {task.stale && <span>状态待更新</span>}
           <span>
             {task.status === 'complete' ? formatBytes(task.size) : `${formatBytes(task.done_bytes)} / ${task.size ? formatBytes(task.size) : '--'}`}
           </span>
@@ -77,6 +80,7 @@ export default function DownloadRow({
           ))}
           {!running && <span>{formatRelative(task.created_at)}</span>}
         </div>
+        {task.operation?.message && task.operation.status !== 'confirmed' && <div role="status" className="mt-1 text-[12px] text-warning">{task.operation.message}</div>}
         {task.status === 'error' && task.error && <div className="mt-1 line-clamp-2 text-[12px] break-all text-danger">{task.error}</div>}
         {showProgress && (
           <div className="mt-2 flex items-center gap-2.5">
@@ -108,7 +112,7 @@ export default function DownloadRow({
             <IconButton icon={primary.icon} label={primary.label} size="sm" tone={primary.action === 'pause' ? 'default' : 'accent'} onClick={() => onAction(primary.action)} />
           )}
           <IconButton icon={Info} label="详情" size="sm" onClick={() => onAction('detail')} />
-          <IconButton icon={Trash2} label="删除" size="sm" tone="danger" onClick={() => onAction('delete')} />
+          <IconButton disabled={task.capabilities?.delete === false || task.operation?.status === 'pending'} icon={Trash2} label="删除" size="sm" tone="danger" onClick={() => onAction('delete')} />
         </div>
       )}
     </div>

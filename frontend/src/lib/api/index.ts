@@ -20,6 +20,7 @@ import type {
   ResourcePreview,
   TorrentPreview,
   DownloadCreateResult,
+  DownloadActionResponse,
   DownloadFilter,
   DownloadList,
   DownloadTask,
@@ -136,10 +137,10 @@ export const downloadsApi = {
     return http.form<Created>('/downloads/torrent', form)
   },
   cloud: (file_ids: string[], folder_id = '') => http.post<Created>('/downloads/cloud', { file_ids, folder_id }),
-  pause: (ids: string[]) => http.post<Ok>('/downloads/pause', { ids }),
-  resume: (ids: string[]) => http.post<Ok>('/downloads/resume', { ids }),
+  pause: (ids: string[]) => http.post<DownloadActionResponse>('/downloads/pause', { ids }),
+  resume: (ids: string[]) => http.post<DownloadActionResponse>('/downloads/resume', { ids }),
   retry: (ids: string[]) => http.post<Created>('/downloads/retry', { ids }),
-  remove: (ids: string[], delete_files?: boolean) => http.post<Ok>('/downloads/delete', { ids, delete_files }),
+  remove: (ids: string[], delete_files?: boolean) => http.post<DownloadActionResponse>('/downloads/delete', { ids, delete_files }),
 }
 
 export const sharesApi = {
