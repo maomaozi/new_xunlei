@@ -6,6 +6,18 @@
 
 > 站点本身没有独立登录，只使用迅雷账号登录。任何能访问本站的人都能操作已登录的迅雷账号，请只在可信的局域网中使用。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/desktop-overview.png" alt="桌面端概览" width="49%">
+  <img src="docs/images/desktop-settings.png" alt="桌面端设置" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/images/mobile-overview.png" alt="手机端「我的」页" width="32%">
+  <img src="docs/images/mobile-downloads.png" alt="手机端下载页" width="32%">
+</p>
+
 ## 功能
 
 ### 云盘

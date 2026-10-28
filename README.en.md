@@ -6,6 +6,18 @@ A self-hosted web app for Xunlei Pan and download management. Browse and manage 
 
 > The site has no login of its own; it only uses your Xunlei account. Anyone who can reach the site can act on the signed-in Xunlei account, so run it on a trusted LAN only.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/desktop-overview.png" alt="Desktop overview" width="49%">
+  <img src="docs/images/desktop-settings.png" alt="Desktop settings" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/images/mobile-overview.png" alt="Mobile home page" width="32%">
+  <img src="docs/images/mobile-downloads.png" alt="Mobile downloads page" width="32%">
+</p>
+
 ## Features
 
 ### Cloud drive
