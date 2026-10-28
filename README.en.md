@@ -9,8 +9,11 @@ A self-hosted web app for Xunlei Pan and download management. Browse and manage 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/desktop-overview.png" alt="Desktop overview" width="49%">
-  <img src="docs/images/desktop-settings.png" alt="Desktop settings" width="49%">
+  <img src="docs/images/desktop-overview.png" alt="桌面端概览" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/images/desktop-settings.png" alt="桌面端设置" width="100%">
 </p>
 
 <p align="center">
