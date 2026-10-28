@@ -9,9 +9,13 @@
 ## 界面预览
 
 <p align="center">
-  <img src="docs/images/desktop-overview.png" alt="桌面端概览" width="49%">
-  <img src="docs/images/desktop-settings.png" alt="桌面端设置" width="49%">
+  <img src="docs/images/desktop-overview.png" alt="桌面端概览" width="100%">
 </p>
+
+<p align="center">
+  <img src="docs/images/desktop-settings.png" alt="桌面端设置" width="100%">
+</p>
+  
 
 <p align="center">
   <img src="docs/images/mobile-overview.png" alt="手机端「我的」页" width="32%">
